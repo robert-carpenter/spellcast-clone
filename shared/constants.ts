@@ -35,4 +35,26 @@ export const CONSONANTS = LETTERS.split("")
 
 export const GEM_CHANCE = 0.5;
 export const TRIPLE_CHANCE = 0.12;
-export const VOWEL_RATIO = 0.4;
+
+export interface LetterWeightEntry {
+  letter: string;
+  weight: number;
+  cumulative: number;
+}
+
+const buildLetterWeights = (): LetterWeightEntry[] => {
+  let cumulative = 0;
+  return Object.entries(LETTER_VALUES).map(([letter, value]) => {
+    const weight = value > 0 ? 1 / value : 0;
+    cumulative += weight;
+    return {
+      letter: letter.toUpperCase(),
+      weight,
+      cumulative
+    };
+  });
+};
+
+export const LETTER_WEIGHTS = buildLetterWeights();
+export const LETTER_WEIGHT_TOTAL =
+  LETTER_WEIGHTS.length > 0 ? LETTER_WEIGHTS[LETTER_WEIGHTS.length - 1].cumulative : 0;

@@ -7,13 +7,14 @@ import {
   Texture
 } from "three";
 import type { TileModel } from "../../shared/gameTypes";
-import { LETTER_VALUES,
-  CONSONANTS,
+import {
   GEM_CHANCE,
   LETTERS,
-  TRIPLE_CHANCE,
-  VOWEL_RATIO,
-  VOWELS } from "./../../shared/constants";
+  LETTER_VALUES,
+  LETTER_WEIGHT_TOTAL,
+  LETTER_WEIGHTS,
+  TRIPLE_CHANCE
+} from "./../../shared/constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
 
@@ -581,9 +582,18 @@ export class WordBoard extends Group {
   }
 
   private randomLetter(): string {
-    const useVowel = Math.random() < VOWEL_RATIO;
-    const pool = useVowel ? VOWELS : CONSONANTS;
-    return pool[Math.floor(Math.random() * pool.length)];
+    if (!LETTER_WEIGHT_TOTAL || !LETTER_WEIGHTS.length) {
+      return LETTERS[Math.floor(Math.random() * LETTERS.length)];
+    }
+
+    const target = Math.random() * LETTER_WEIGHT_TOTAL;
+    for (const entry of LETTER_WEIGHTS) {
+      if (target <= entry.cumulative) {
+        return entry.letter;
+      }
+    }
+
+    return LETTERS[Math.floor(Math.random() * LETTERS.length)];
   }
 
   private normalizeLetter(letter: string): string {

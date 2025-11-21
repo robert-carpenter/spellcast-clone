@@ -76,6 +76,8 @@ export class SpellcastGame {
   private lastSubmissionToken?: string;
   private lastActivePlayerId?: string;
   private wasMyTurn = false;
+  private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
+  private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
 
   constructor(
     target: HTMLElement,
@@ -168,6 +170,7 @@ export class SpellcastGame {
     this.onResize();
 
     window.addEventListener("pointermove", this.onPointerMove);
+    window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("click", this.onClick);
     window.addEventListener("resize", this.onResize);
     this.submitButton.addEventListener("click", this.onSubmitWord);
@@ -183,6 +186,7 @@ export class SpellcastGame {
   public dispose() {
     cancelAnimationFrame(this.animationId);
     window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerdown", this.onPointerDown);
     window.removeEventListener("click", this.onClick);
     window.removeEventListener("resize", this.onResize);
     this.submitButton.removeEventListener("click", this.onSubmitWord);
@@ -343,18 +347,26 @@ export class SpellcastGame {
     this.renderPlayers();
   };
 
+  private updatePointerFromEvent(event: PointerEvent) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
   private onPointerMove = (event: PointerEvent) => {
     if (this.isModalOpen) return;
     if (this.isMultiplayer && !this.isMyTurn()) {
       this.board.setHovered(undefined);
       return;
     }
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.updatePointerFromEvent(event);
 
     const tile = this.intersectTile();
     this.board.setHovered(tile ?? undefined);
+  };
+
+  private onPointerDown = (event: PointerEvent) => {
+    this.updatePointerFromEvent(event);
   };
 
   private onClick = () => {
@@ -609,7 +621,24 @@ export class SpellcastGame {
     this.updateWordBoxLayout();
   }
 
+  private isCompactLayout(): boolean {
+    return this.compactLayoutQuery.matches;
+  }
+
   private updateWordBoxLayout() {
+    if (this.isCompactLayout()) {
+      this.wordBox.style.width = "";
+      this.wordBox.style.left = "";
+      this.wordBox.style.top = "";
+      this.boardHeader.style.width = "";
+      this.boardHeader.style.marginLeft = "";
+      if (this.controlsWrap) {
+        this.controlsWrap.style.width = "";
+        this.controlsWrap.style.marginLeft = "";
+      }
+      return;
+    }
+
     const widthPx = this.boardViewport.clientWidth;
     const heightPx = this.boardViewport.clientHeight;
     if (!widthPx || !heightPx) return;

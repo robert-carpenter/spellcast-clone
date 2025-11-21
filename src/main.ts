@@ -28,6 +28,7 @@ const dictionary = new Set(
     .filter(Boolean)
 );
 
+
 const BASE_PATH = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const HOME_PATH = BASE_PATH || "/";
 soundManager.enableAutoUnlock();
