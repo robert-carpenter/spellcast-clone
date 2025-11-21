@@ -12,6 +12,8 @@ export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
 
 export type TileState = "base" | "hover" | "selected";
 
+export type Multiplier = "none" | "doubleLetter" | "tripleLetter";
+
 export interface SelectionResult {
   selection: Tile[];
   success: boolean;
@@ -26,10 +28,13 @@ export interface Tile {
   y: number;
   state: TileState;
   hasGem: boolean;
+  multiplier: Multiplier;
+  badge?: Mesh;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const GEM_CHANCE = 0.25;
+const TRIPLE_CHANCE = 0.12;
 
 export class WordBoard extends Group {
   public readonly cols: number;
@@ -48,6 +53,8 @@ export class WordBoard extends Group {
   private connectionPool: Mesh<PlaneGeometry, MeshBasicMaterial>[] = [];
   private activeConnections: Mesh<PlaneGeometry, MeshBasicMaterial>[] = [];
   private connectionThickness = 0.2;
+  private badgeGeometry = new PlaneGeometry(0.55, 0.55);
+  private badgeMaterials = new Map<Multiplier, MeshBasicMaterial>();
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -58,7 +65,7 @@ export class WordBoard extends Group {
     this.connectionMaterial = new MeshBasicMaterial({
       color: "#39b9ff",
       transparent: true,
-      opacity: 0.7
+      opacity: 0.9
     });
 
     this.connectionsGroup.position.z = -0.04;
@@ -156,7 +163,8 @@ export class WordBoard extends Group {
     if (!this.tiles.length) return;
     const payload = this.tiles.map((tile) => ({
       letter: tile.letter,
-      hasGem: tile.hasGem
+      hasGem: tile.hasGem,
+      multiplier: tile.multiplier
     }));
 
     for (let i = payload.length - 1; i > 0; i -= 1) {
@@ -168,7 +176,9 @@ export class WordBoard extends Group {
       const data = payload[index];
       tile.letter = data.letter;
       tile.hasGem = data.hasGem;
+      tile.multiplier = data.multiplier;
       this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+      this.updateMultiplierBadge(tile);
     });
     this.updateSelectionLine();
   }
@@ -215,6 +225,62 @@ export class WordBoard extends Group {
     this.activeConnections = [];
   }
 
+  private createMultiplierBadge(multiplier: Multiplier): Mesh {
+    let material = this.badgeMaterials.get(multiplier);
+    if (!material) {
+      const texture = this.generateBadgeTexture(multiplier);
+      material = new MeshBasicMaterial({
+        map: texture,
+        transparent: true
+      });
+      this.badgeMaterials.set(multiplier, material);
+    }
+    const mesh = new Mesh(this.badgeGeometry, material);
+    mesh.renderOrder = 5;
+    return mesh;
+  }
+
+  private generateBadgeTexture(multiplier: Multiplier): CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to get 2d context");
+
+    ctx.fillStyle = multiplier === "tripleLetter" ? "#f2a93d" : "#536cff";
+    ctx.strokeStyle = "rgba(0,0,0,0.45)";
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 140px 'Play', 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(multiplier === "tripleLetter" ? "TL" : "DL", size / 2, size / 2 + 10);
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private updateMultiplierBadge(tile: Tile) {
+    if (tile.badge) {
+      tile.mesh.remove(tile.badge);
+      tile.badge = undefined;
+    }
+    if (tile.multiplier === "none") return;
+
+    const badge = this.createMultiplierBadge(tile.multiplier);
+    badge.scale.set(.8,.8,.8);
+    badge.position.set(-0.45, 0.45, 0.05);
+    tile.mesh.add(badge);
+    tile.badge = badge;
+  }
+
   private updateSelectionLine() {
     this.releaseActiveConnections();
     if (this.selectedOrder.length < 2) {
@@ -242,25 +308,45 @@ export class WordBoard extends Group {
     const offsetX = (this.cols - 1) * (this.tileSize / 2);
     const offsetY = (this.rows - 1) * (this.tileSize / 2);
 
+    const total = this.cols * this.rows;
+    const tilesData = [];
+
     for (let y = 0; y < this.rows; y += 1) {
       for (let x = 0; x < this.cols; x += 1) {
         const letter = this.normalizeLetter(this.randomLetter());
         const hasGem = Math.random() < GEM_CHANCE;
-        const material = new MeshBasicMaterial({
-          color: "#ffffff",
-          map: this.getLetterTexture(letter, "base", hasGem),
-          transparent: true
-        });
-        const mesh: TileMesh = new Mesh(this.baseGeometry, material);
-        mesh.position.set(x * this.tileSize - offsetX, y * this.tileSize - offsetY, 0);
-        mesh.userData.tileCoordinates = { x, y };
-
-        const tile: Tile = { mesh, letter, x, y, state: "base", hasGem };
-        mesh.userData.tile = tile;
-        this.tiles.push(tile);
-        this.add(mesh);
+        tilesData.push({ x, y, letter, hasGem });
       }
     }
+
+    const specialIndex = Math.floor(Math.random() * total);
+    const specialType: Multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
+
+    tilesData.forEach((data, index) => {
+      const multiplier = index === specialIndex ? specialType : "none";
+      const material = new MeshBasicMaterial({
+        color: "#ffffff",
+        map: this.getLetterTexture(data.letter, "base", data.hasGem),
+        transparent: true
+      });
+      const mesh: TileMesh = new Mesh(this.baseGeometry, material);
+      mesh.position.set(data.x * this.tileSize - offsetX, data.y * this.tileSize - offsetY, 0);
+      mesh.userData.tileCoordinates = { x: data.x, y: data.y };
+
+      const tile: Tile = {
+        mesh,
+        letter: data.letter,
+        x: data.x,
+        y: data.y,
+        state: "base",
+        hasGem: data.hasGem,
+        multiplier
+      };
+      mesh.userData.tile = tile;
+      this.tiles.push(tile);
+      this.add(mesh);
+      this.updateMultiplierBadge(tile);
+    });
   }
 
   private randomLetter(): string {
@@ -332,22 +418,14 @@ export class WordBoard extends Group {
 
     if (hasGem) {
       ctx.save();
-      ctx.translate(size * 0.28, size * 0.72);
+      ctx.translate(size * 0.78, size * 0.78);
       ctx.fillStyle = "#f26cff";
-      ctx.strokeStyle = "rgba(0,0,0,0.35)";
-      ctx.lineWidth = 6;
+      ctx.strokeStyle = "rgba(0,0,0,0.4)";
+      ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(0, 0, 28, 0, Math.PI * 2);
+      ctx.rect(-180, 0, 36, 36);
       ctx.fill();
       ctx.stroke();
-
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.moveTo(-6, -12);
-      ctx.lineTo(12, 0);
-      ctx.lineTo(-6, 12);
-      ctx.closePath();
-      ctx.fill();
       ctx.restore();
     }
 

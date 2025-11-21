@@ -87,6 +87,8 @@ body {
   align-items: center;
   flex-wrap: wrap;
   pointer-events: auto;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .hud__btn {
@@ -119,7 +121,7 @@ body {
 
 .power-panel {
   position: absolute;
-  width: 160px;
+  width: 200px;
   top: 20px;
   right: 18px;
   pointer-events: auto;
@@ -130,7 +132,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+  /* box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4); */
 }
 
 .power-panel__title {
@@ -178,6 +180,7 @@ body {
   pointer-events: none;
   text-transform: uppercase;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  top: 100px;
   z-index: 2;
 }
 

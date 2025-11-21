@@ -6,6 +6,7 @@ import {
   Vector2,
   WebGLRenderer
 } from "three";
+import { LETTER_VALUES } from "./constants";
 import { WordBoard, Tile } from "./WordBoard";
 
 interface Player {
@@ -32,6 +33,7 @@ export class SpellcastGame {
   private wordBox: HTMLElement;
   private playersListEl: HTMLElement;
   private submitButton: HTMLButtonElement;
+  private resetButton: HTMLButtonElement;
   private shuffleButton: HTMLButtonElement;
   private rerollButton: HTMLButtonElement;
   private controlsWrap: HTMLElement;
@@ -89,6 +91,7 @@ export class SpellcastGame {
     const hud = this.createHud();
     this.controlsWrap = hud.controls;
     this.submitButton = hud.submitBtn;
+    this.resetButton = hud.resetBtn;
     const powerUi = this.createPowerPanel();
     this.powerPanel = powerUi.panel;
     this.shuffleButton = powerUi.shuffleBtn;
@@ -103,6 +106,7 @@ export class SpellcastGame {
     window.addEventListener("click", this.onClick);
     window.addEventListener("resize", this.onResize);
     this.submitButton.addEventListener("click", this.onSubmitWord);
+    this.resetButton.addEventListener("click", this.onResetWord);
     this.shuffleButton.addEventListener("click", this.onShuffle);
     this.rerollButton.addEventListener("click", this.onRerollLetter);
 
@@ -116,6 +120,7 @@ export class SpellcastGame {
     window.removeEventListener("click", this.onClick);
     window.removeEventListener("resize", this.onResize);
     this.submitButton.removeEventListener("click", this.onSubmitWord);
+    this.resetButton.removeEventListener("click", this.onResetWord);
     this.shuffleButton.removeEventListener("click", this.onShuffle);
     this.rerollButton.removeEventListener("click", this.onRerollLetter);
     this.renderer.dispose();
@@ -139,11 +144,15 @@ export class SpellcastGame {
     submitBtn.textContent = "Submit Word";
     submitBtn.className = "hud__btn primary";
 
-    controls.append(submitBtn);
+    const resetBtn = document.createElement("button");
+    resetBtn.textContent = "Reset Word";
+    resetBtn.className = "hud__btn";
+
+    controls.append(submitBtn, resetBtn);
     hud.append(controls);
     this.boardViewport.appendChild(hud);
 
-    return { controls, submitBtn };
+    return { controls, submitBtn, resetBtn };
   }
 
   private createPowerPanel() {
@@ -162,7 +171,7 @@ export class SpellcastGame {
     shuffleBtn.className = "power-panel__btn";
 
     const rerollBtn = document.createElement("button");
-    rerollBtn.textContent = "Change Letter (1 gem)";
+    rerollBtn.textContent = "Swap Letter (3 gems)";
     rerollBtn.className = "power-panel__btn";
 
     controls.append(shuffleBtn, rerollBtn);
@@ -244,7 +253,7 @@ export class SpellcastGame {
     }
 
     const word = selection.map((t) => t.letter).join("");
-    const points = word.length;
+    const points = this.calculateWordScore(selection);
     const gemsEarned = this.board.collectGemsFromSelection();
     const player = this.players[this.currentPlayerIndex];
 
@@ -269,6 +278,11 @@ export class SpellcastGame {
     this.renderPlayers();
   };
 
+  private onResetWord = () => {
+    this.board.clearSelection();
+    this.updateWord([]);
+  };
+
   private onRerollLetter = () => {
     const selection = this.board.getSelection();
     const player = this.players[this.currentPlayerIndex];
@@ -291,6 +305,15 @@ export class SpellcastGame {
   private advanceTurn() {
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
     this.renderPlayers();
+  }
+
+  private calculateWordScore(selection: Tile[]): number {
+    return selection.reduce((total, tile) => {
+      const base = LETTER_VALUES[tile.letter.toLowerCase()] ?? 0;
+      const multiplier =
+        tile.multiplier === "tripleLetter" ? 3 : tile.multiplier === "doubleLetter" ? 2 : 1;
+      return total + base * multiplier;
+    }, 0);
   }
 
   private updateWord(selection: Tile[]) {
@@ -362,7 +385,7 @@ export class SpellcastGame {
 
     this.wordBox.style.width = `${boardWidthPx}px`;
     this.wordBox.style.left = `${boardLeftPx}px`;
-    this.wordBox.style.top = `${topPx}px`;
+    this.wordBox.style.top = `${(boxHeight / 2) - 10}px`;
     this.boardHeader.style.width = `${boardWidthPx}px`;
     this.boardHeader.style.marginLeft = `${boardLeftPx}px`;
     if (this.controlsWrap) {
