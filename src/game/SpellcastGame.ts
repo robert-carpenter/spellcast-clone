@@ -35,6 +35,7 @@ export class SpellcastGame {
   private shuffleButton: HTMLButtonElement;
   private rerollButton: HTMLButtonElement;
   private controlsWrap: HTMLElement;
+  private powerPanel: HTMLDivElement;
 
   private players: Player[] = [
     { id: "p1", name: "Arcanist", score: 0, gems: 3 },
@@ -88,8 +89,10 @@ export class SpellcastGame {
     const hud = this.createHud();
     this.controlsWrap = hud.controls;
     this.submitButton = hud.submitBtn;
-    this.shuffleButton = hud.shuffleBtn;
-    this.rerollButton = hud.rerollBtn;
+    const powerUi = this.createPowerPanel();
+    this.powerPanel = powerUi.panel;
+    this.shuffleButton = powerUi.shuffleBtn;
+    this.rerollButton = powerUi.rerollBtn;
 
     this.playersListEl = this.createSidebar();
     this.renderPlayers();
@@ -136,21 +139,38 @@ export class SpellcastGame {
     submitBtn.textContent = "Submit Word";
     submitBtn.className = "hud__btn primary";
 
-    const shuffleBtn = document.createElement("button");
-    shuffleBtn.textContent = "Shuffle (1 gem)";
-    shuffleBtn.className = "hud__btn";
-
-    const rerollBtn = document.createElement("button");
-    rerollBtn.textContent = "Change Letter (1 gem)";
-    rerollBtn.className = "hud__btn";
-
-    controls.append(submitBtn, shuffleBtn, rerollBtn);
+    controls.append(submitBtn);
     hud.append(controls);
     this.boardViewport.appendChild(hud);
 
-    return { controls, submitBtn, shuffleBtn, rerollBtn };
+    return { controls, submitBtn };
   }
 
+  private createPowerPanel() {
+    const panel = document.createElement("div");
+    panel.className = "power-panel";
+
+    const title = document.createElement("div");
+    title.className = "power-panel__title";
+    title.textContent = "Power Ups";
+
+    const controls = document.createElement("div");
+    controls.className = "power-panel__controls";
+
+    const shuffleBtn = document.createElement("button");
+    shuffleBtn.textContent = "Shuffle (1 gem)";
+    shuffleBtn.className = "power-panel__btn";
+
+    const rerollBtn = document.createElement("button");
+    rerollBtn.textContent = "Change Letter (1 gem)";
+    rerollBtn.className = "power-panel__btn";
+
+    controls.append(shuffleBtn, rerollBtn);
+    panel.append(title, controls);
+    this.boardViewport.appendChild(panel);
+
+    return { panel, shuffleBtn, rerollBtn };
+  }
   private createWordBox() {
     const box = document.createElement("div");
     box.className = "word-box";
@@ -291,7 +311,6 @@ export class SpellcastGame {
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height);
-    this.board.setLineResolution(width, height);
     this.updateBoardPlacement();
     this.updateWordBoxLayout();
   };
@@ -348,7 +367,7 @@ export class SpellcastGame {
     this.boardHeader.style.marginLeft = `${boardLeftPx}px`;
     if (this.controlsWrap) {
       this.controlsWrap.style.width = `${boardWidthPx}px`;
-      this.controlsWrap.style.marginLeft = `${boardLeftPx}px`;
+      this.controlsWrap.style.marginLeft = `8px`;
     }
   }
 

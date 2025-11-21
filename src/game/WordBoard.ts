@@ -6,9 +6,6 @@ import {
   PlaneGeometry,
   Texture
 } from "three";
-import { Line2 } from "three/examples/jsm/lines/Line2";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial";
 import { LETTER_VALUES } from "./constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -45,9 +42,12 @@ export class WordBoard extends Group {
   private selectedOrder: Tile[] = [];
   private baseGeometry = new PlaneGeometry(1, 1);
   private textureCache = new Map<string, Texture>();
-  private selectionLine: Line2;
-  private selectionLineMaterial: LineMaterial;
-  private selectionLineGeometry: LineGeometry;
+  private connectionsGroup = new Group();
+  private connectionGeometry = new PlaneGeometry(1, 1);
+  private connectionMaterial: MeshBasicMaterial;
+  private connectionPool: Mesh<PlaneGeometry, MeshBasicMaterial>[] = [];
+  private activeConnections: Mesh<PlaneGeometry, MeshBasicMaterial>[] = [];
+  private connectionThickness = 0.2;
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -55,19 +55,14 @@ export class WordBoard extends Group {
     this.rows = rows;
     this.name = "WordBoard";
 
-    this.selectionLineGeometry = new LineGeometry();
-    this.selectionLineMaterial = new LineMaterial({
-      color: 0x39b9ff,
+    this.connectionMaterial = new MeshBasicMaterial({
+      color: "#39b9ff",
       transparent: true,
-      opacity: 0.9,
-      linewidth: 5,
-      depthTest: false
+      opacity: 0.7
     });
-    this.selectionLineMaterial.resolution.set(window.innerWidth, window.innerHeight);
-    this.selectionLine = new Line2(this.selectionLineGeometry, this.selectionLineMaterial);
-    this.selectionLine.visible = false;
-    this.selectionLine.position.z = -0.05;
-    this.add(this.selectionLine);
+
+    this.connectionsGroup.position.z = -0.04;
+    this.add(this.connectionsGroup);
 
     this.buildTiles();
   }
@@ -192,33 +187,55 @@ export class WordBoard extends Group {
     return (this.rows - 1) * this.tileSize;
   }
 
-  public setLineResolution(width: number, height: number) {
-    this.selectionLineMaterial.resolution.set(width, height);
-  }
-
   private areNeighbors(a: Tile, b: Tile): boolean {
     const dx = Math.abs(a.x - b.x);
     const dy = Math.abs(a.y - b.y);
     return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
   }
 
+  private acquireConnectionMesh(): Mesh<PlaneGeometry, MeshBasicMaterial> {
+    const mesh = this.connectionPool.pop();
+    if (mesh) {
+      mesh.visible = true;
+      return mesh;
+    }
+
+    const newMesh = new Mesh(this.connectionGeometry, this.connectionMaterial);
+    newMesh.visible = true;
+    newMesh.renderOrder = -1;
+    return newMesh;
+  }
+
+  private releaseActiveConnections() {
+    for (const mesh of this.activeConnections) {
+      mesh.visible = false;
+      this.connectionsGroup.remove(mesh);
+      this.connectionPool.push(mesh);
+    }
+    this.activeConnections = [];
+  }
+
   private updateSelectionLine() {
+    this.releaseActiveConnections();
     if (this.selectedOrder.length < 2) {
-      this.selectionLine.visible = false;
-      this.selectionLineGeometry.setPositions([]);
       return;
     }
 
-    const segments: number[] = [];
     for (let i = 0; i < this.selectedOrder.length - 1; i += 1) {
       const start = this.selectedOrder[i].mesh.position;
       const end = this.selectedOrder[i + 1].mesh.position;
-      segments.push(start.x, start.y, -0.05, end.x, end.y, -0.05);
-    }
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const length = Math.hypot(dx, dy) || 0.0001;
 
-    this.selectionLineGeometry.setPositions(new Float32Array(segments));
-    this.selectionLine.visible = true;
-    this.selectionLine.computeLineDistances();
+      const connection = this.acquireConnectionMesh();
+      connection.scale.set(length, this.connectionThickness, 1);
+      connection.position.set((start.x + end.x) / 2, (start.y + end.y) / 2, -0.04);
+      connection.rotation.set(0, 0, Math.atan2(dy, dx));
+
+      this.connectionsGroup.add(connection);
+      this.activeConnections.push(connection);
+    }
   }
 
   private buildTiles() {
