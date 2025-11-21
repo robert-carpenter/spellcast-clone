@@ -7,7 +7,13 @@ import {
   Texture
 } from "three";
 import type { TileModel } from "../../shared/gameTypes";
-import { LETTER_VALUES } from "./constants";
+import { LETTER_VALUES,
+  CONSONANTS,
+  GEM_CHANCE,
+  LETTERS,
+  TRIPLE_CHANCE,
+  VOWEL_RATIO,
+  VOWELS } from "./../../shared/constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
 
@@ -36,16 +42,6 @@ export interface Tile {
   wordBadge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
 }
 
-const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const VOWELS = "AEIOU";
-const CONSONANTS = LETTERS.split("").filter((ch) => !VOWELS.includes(ch)).join("");
-const GEM_CHANCE = 0.5;
-const TRIPLE_CHANCE = 0.12;
-
-interface WordBoardOptions {
-  vowelRatio?: number;
-}
-
 export class WordBoard extends Group {
   public readonly cols: number;
   public readonly rows: number;
@@ -71,16 +67,12 @@ export class WordBoard extends Group {
   private multipliersEnabled = true;
   private swapMode = false;
   private wordMultiplierEnabled = true;
-  private vowelRatio = 0.4;
 
-  constructor(cols = 5, rows = 5, options: WordBoardOptions = {}) {
+  constructor(cols = 5, rows = 5) {
     super();
     this.cols = cols;
     this.rows = rows;
     this.name = "WordBoard";
-    if (typeof options.vowelRatio === "number") {
-      this.setVowelRatio(options.vowelRatio);
-    }
 
     this.connectionMaterial = new MeshBasicMaterial({
       color: "#39b9ff",
@@ -263,11 +255,6 @@ export class WordBoard extends Group {
     if (this.swapMode === active) return;
     this.swapMode = active;
     this.tiles.forEach((tile) => this.updateSwapTint(tile));
-  }
-
-  public setVowelRatio(ratio: number) {
-    if (Number.isNaN(ratio)) return;
-    this.vowelRatio = Math.min(0.9, Math.max(0.1, ratio));
   }
 
   public refreshTiles(tiles: Tile[], resetWordMultiplier = false) {
@@ -594,7 +581,7 @@ export class WordBoard extends Group {
   }
 
   private randomLetter(): string {
-    const useVowel = Math.random() < this.vowelRatio;
+    const useVowel = Math.random() < VOWEL_RATIO;
     const pool = useVowel ? VOWELS : CONSONANTS;
     return pool[Math.floor(Math.random() * pool.length)];
   }

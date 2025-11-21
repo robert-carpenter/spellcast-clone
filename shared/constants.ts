@@ -26,3 +26,13 @@ export const LETTER_VALUES: Record<string, number> = {
   y: 4,
   z: 8
 };
+
+export const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+export const VOWELS = "AEIOU";
+export const CONSONANTS = LETTERS.split("")
+  .filter((ch) => !VOWELS.includes(ch))
+  .join("");
+
+export const GEM_CHANCE = 0.5;
+export const TRIPLE_CHANCE = 0.12;
+export const VOWEL_RATIO = 0.4;

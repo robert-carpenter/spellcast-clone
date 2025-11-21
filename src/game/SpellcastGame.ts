@@ -7,7 +7,7 @@ import {
   WebGLRenderer
 } from "three";
 import type { GameSnapshot } from "../../shared/gameTypes";
-import { LETTER_VALUES } from "./constants";
+import { LETTER_VALUES } from "./../../shared/constants";
 import { WordBoard, Tile } from "./WordBoard";
 import { soundManager } from "../audio/SoundManager";
 
@@ -138,7 +138,7 @@ export class SpellcastGame {
     this.camera.position.set(0, 0, 15);
     this.camera.lookAt(0, 0, 0);
 
-    this.board = new WordBoard(5, 5, { vowelRatio: 0.45 });
+    this.board = new WordBoard(5, 5);
     this.board.scale.setScalar(1.75); // upscale grid by 75%
     this.scene.add(this.board);
     this.updateBoardPlacement();
@@ -327,7 +327,8 @@ export class SpellcastGame {
       id,
       name: `Player ${this.players.length + 1}`,
       score: 0,
-      gems: 3
+      gems: 3,
+      isHost: false
     });
     this.renderPlayers();
   };
