@@ -11,8 +11,8 @@ import { LETTER_VALUES } from "./constants";
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
 
 export type TileState = "base" | "hover" | "selected";
-
 export type Multiplier = "none" | "doubleLetter" | "tripleLetter";
+export type WordMultiplier = "none" | "doubleWord";
 
 export interface SelectionResult {
   selection: Tile[];
@@ -30,6 +30,8 @@ export interface Tile {
   hasGem: boolean;
   multiplier: Multiplier;
   badge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
+  wordMultiplier: WordMultiplier;
+  wordBadge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -55,7 +57,11 @@ export class WordBoard extends Group {
   private connectionThickness = 0.2;
   private badgeGeometry = new PlaneGeometry(0.55, 0.55);
   private badgeMaterials = new Map<Multiplier, MeshBasicMaterial>();
+  private wordBadgeGeometry = new PlaneGeometry(0.5, 0.5);
+  private wordBadgeMaterial?: MeshBasicMaterial;
   private multipliersEnabled = true;
+  private swapMode = false;
+  private wordMultiplierEnabled = true;
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -165,7 +171,8 @@ export class WordBoard extends Group {
     const payload = this.tiles.map((tile) => ({
       letter: tile.letter,
       hasGem: tile.hasGem,
-      multiplier: tile.multiplier
+      multiplier: tile.multiplier,
+      wordMultiplier: tile.wordMultiplier
     }));
 
     for (let i = payload.length - 1; i > 0; i -= 1) {
@@ -178,8 +185,10 @@ export class WordBoard extends Group {
       tile.letter = data.letter;
       tile.hasGem = data.hasGem;
       tile.multiplier = data.multiplier;
+      tile.wordMultiplier = data.wordMultiplier;
       this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
       this.updateMultiplierBadge(tile);
+      this.updateWordMultiplierBadge(tile);
     });
     this.updateSelectionLine();
   }
@@ -190,15 +199,48 @@ export class WordBoard extends Group {
     this.updateSelectionLine();
   }
 
-  public refreshTiles(tiles: Tile[]) {
+  public swapTileLetter(tile: Tile, letter: string) {
+    tile.letter = this.normalizeLetter(letter);
+    this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+  }
+
+  public setSwapMode(active: boolean) {
+    if (this.swapMode === active) return;
+    this.swapMode = active;
+    this.tiles.forEach((tile) => this.updateSwapTint(tile));
+  }
+
+  public refreshTiles(tiles: Tile[], resetWordMultiplier = false) {
+    let consumedLetterMultiplier = false;
+    let consumedWordMultiplier = false;
+
     tiles.forEach((tile) => {
+      if (tile.multiplier !== "none") consumedLetterMultiplier = true;
+      if (tile.wordMultiplier === "doubleWord") consumedWordMultiplier = true;
+
       tile.letter = this.normalizeLetter(this.randomLetter());
       tile.hasGem = Math.random() < GEM_CHANCE;
       tile.multiplier = "none";
+      if (resetWordMultiplier || tile.wordMultiplier === "doubleWord") {
+        tile.wordMultiplier = "none";
+      }
+
       this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
       this.updateMultiplierBadge(tile);
+      this.updateWordMultiplierBadge(tile);
+      this.updateSwapTint(tile);
     });
+
     this.ensureMultiplier(tiles);
+    if (
+      this.wordMultiplierEnabled &&
+      (resetWordMultiplier ||
+        consumedWordMultiplier ||
+        !this.tiles.some((t) => t.wordMultiplier === "doubleWord"))
+    ) {
+      this.ensureWordMultiplier(tiles);
+    }
+
     this.updateSelectionLine();
   }
 
@@ -212,6 +254,18 @@ export class WordBoard extends Group {
       });
     } else {
       this.ensureMultiplier();
+    }
+  }
+
+  public setWordMultiplierEnabled(enabled: boolean) {
+    this.wordMultiplierEnabled = enabled;
+    if (!enabled) {
+      this.tiles.forEach((tile) => {
+        tile.wordMultiplier = "none";
+        this.updateWordMultiplierBadge(tile);
+      });
+    } else {
+      this.ensureWordMultiplier();
     }
   }
 
@@ -267,6 +321,25 @@ export class WordBoard extends Group {
     target.multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
     this.applyStyle(target, this.selected.has(target) ? "selected" : "base");
     this.updateMultiplierBadge(target);
+  }
+
+  private ensureWordMultiplier(exclude: Tile[] = []) {
+    if (!this.wordMultiplierEnabled) return;
+    const existing = this.tiles.find((tile) => tile.wordMultiplier === "doubleWord");
+    if (existing) return;
+
+    const excludedSet = new Set(exclude);
+    let candidates = this.tiles.filter(
+      (tile) => tile.wordMultiplier === "none" && !excludedSet.has(tile)
+    );
+    if (!candidates.length) {
+      candidates = this.tiles.filter((tile) => tile.wordMultiplier === "none");
+    }
+    if (!candidates.length) return;
+
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    target.wordMultiplier = "doubleWord";
+    this.updateWordMultiplierBadge(target);
   }
 
   private createMultiplierBadge(multiplier: Multiplier): Mesh {
@@ -325,6 +398,62 @@ export class WordBoard extends Group {
     tile.badge = badge;
   }
 
+  private updateSwapTint(tile: Tile) {
+    tile.mesh.material.color.set(this.swapMode ? 0xC4E6F5 : 0xffffff);
+  }
+
+  private updateWordMultiplierBadge(tile: Tile) {
+    if (tile.wordBadge) {
+      tile.mesh.remove(tile.wordBadge);
+      tile.wordBadge = undefined;
+    }
+    if (tile.wordMultiplier === "none") return;
+    const badge = this.createWordMultiplierBadge();
+    badge.position.set(0.45, 0.45, 0.05);
+    tile.mesh.add(badge);
+    tile.wordBadge = badge;
+  }
+
+  private createWordMultiplierBadge(): Mesh<PlaneGeometry, MeshBasicMaterial> {
+    if (!this.wordBadgeMaterial) {
+      const texture = this.generateWordMultiplierBadgeTexture();
+      this.wordBadgeMaterial = new MeshBasicMaterial({
+        map: texture,
+        transparent: true
+      });
+    }
+    const mesh = new Mesh(this.wordBadgeGeometry, this.wordBadgeMaterial);
+    mesh.renderOrder = 5;
+    return mesh;
+  }
+
+  private generateWordMultiplierBadgeTexture(): CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Failed to get 2d context");
+
+    ctx.fillStyle = "#2cd0a5";
+    ctx.strokeStyle = "rgba(0,0,0,0.45)";
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 120px 'Play', 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("2W", size / 2, size / 2 + 10);
+
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   private updateSelectionLine() {
     this.releaseActiveConnections();
     if (this.selectedOrder.length < 2) {
@@ -365,9 +494,12 @@ export class WordBoard extends Group {
 
     const specialIndex = Math.floor(Math.random() * total);
     const specialType: Multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
+    const wordIndex = this.wordMultiplierEnabled ? Math.floor(Math.random() * total) : -1;
 
     tilesData.forEach((data, index) => {
       const multiplier = index === specialIndex ? specialType : "none";
+      const wordMultiplier: WordMultiplier =
+        this.wordMultiplierEnabled && index === wordIndex ? "doubleWord" : "none";
       const material = new MeshBasicMaterial({
         color: "#ffffff",
         map: this.getLetterTexture(data.letter, "base", data.hasGem, multiplier),
@@ -384,15 +516,18 @@ export class WordBoard extends Group {
         y: data.y,
         state: "base",
         hasGem: data.hasGem,
-        multiplier
+        multiplier,
+        wordMultiplier
       };
       mesh.userData.tile = tile;
       this.tiles.push(tile);
       this.add(mesh);
       this.updateMultiplierBadge(tile);
+      this.updateWordMultiplierBadge(tile);
     });
 
     this.ensureMultiplier();
+    this.ensureWordMultiplier();
   }
 
   private randomLetter(): string {
@@ -408,6 +543,7 @@ export class WordBoard extends Group {
     tile.state = state;
     tile.mesh.material.map = this.getLetterTexture(tile.letter, state, tile.hasGem, tile.multiplier);
     tile.mesh.material.needsUpdate = true;
+    this.updateSwapTint(tile);
   }
 
   private getLetterTexture(letter: string, state: TileState, hasGem: boolean, multiplier: Multiplier): Texture {

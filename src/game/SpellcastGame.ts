@@ -42,12 +42,13 @@ export class SpellcastGame {
   private dictionary: Set<string>;
   private round = 1;
   private roundLabel!: HTMLElement;
+  private isModalOpen = false;
+  private swapMode = false;
+  private gameLog: string[] = [];
 
   private players: Player[] = [
-    { id: "p1", name: "Arcanist", score: 0, gems: 3 },
-    { id: "p2", name: "Mystic", score: 0, gems: 3 },
-    { id: "p3", name: "Invoker", score: 0, gems: 3 },
-    { id: "p4", name: "Scribe", score: 0, gems: 3 }
+    { id: "p1", name: "Player 1", score: 0, gems: 3 },
+    { id: "p2", name: "Player 2", score: 0, gems: 3 }
   ];
   private currentPlayerIndex = 0;
 
@@ -92,6 +93,8 @@ export class SpellcastGame {
     this.board.scale.setScalar(1.75); // upscale grid by 75%
     this.scene.add(this.board);
     this.updateBoardPlacement();
+    this.board.setMultipliersEnabled(this.round > 1);
+    this.board.setWordMultiplierEnabled(this.round > 1);
     this.board.setMultipliersEnabled(this.round > 1);
 
     const hud = this.createHud();
@@ -202,10 +205,34 @@ export class SpellcastGame {
     heading.className = "sidebar__heading";
     heading.innerHTML = `Players <span class="round-indicator">Round ${this.round} of ${this.totalRounds}</span>`;
     this.roundLabel = heading.querySelector(".round-indicator")!;
+
+    const logButton = document.createElement("button");
+    logButton.className = "activity-log-btn";
+    logButton.setAttribute("aria-label", "View activity log");
+    const icon = document.createElement("i");
+    icon.className = "fa-solid fa-book";
+    logButton.appendChild(icon);
+    logButton.addEventListener("click", () => this.showActivityLog());
+    heading.appendChild(logButton);
+
     const list = document.createElement("div");
     list.className = "players";
 
-    wrap.append(heading, list);
+    const controls = document.createElement("div");
+    controls.className = "player-controls";
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "player-controls__btn";
+    addBtn.textContent = "+";
+    addBtn.addEventListener("click", this.onAddPlayer);
+
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "player-controls__btn";
+    removeBtn.textContent = "−";
+    removeBtn.addEventListener("click", this.onRemovePlayer);
+
+    controls.append(removeBtn, addBtn);
+    wrap.append(heading, list, controls);
     this.sidebar.appendChild(wrap);
     return list;
   }
@@ -230,7 +257,29 @@ export class SpellcastGame {
     });
   }
 
+  private onAddPlayer = () => {
+    if (this.players.length >= 6) return;
+    const id = `p${this.players.length + 1}`;
+    this.players.push({
+      id,
+      name: `Player ${this.players.length + 1}`,
+      score: 0,
+      gems: 3
+    });
+    this.renderPlayers();
+  };
+
+  private onRemovePlayer = () => {
+    if (this.players.length <= 2) return;
+    this.players.pop();
+    if (this.currentPlayerIndex >= this.players.length) {
+      this.currentPlayerIndex = 0;
+    }
+    this.renderPlayers();
+  };
+
   private onPointerMove = (event: PointerEvent) => {
+    if (this.isModalOpen) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -240,8 +289,15 @@ export class SpellcastGame {
   };
 
   private onClick = () => {
+    if (this.isModalOpen) return;
     const tile = this.intersectTile();
     if (!tile) return;
+
+    if (this.swapMode) {
+      this.handleSwapSelection(tile);
+      return;
+    }
+
     const result = this.board.selectTile(tile);
     if (!result.success) {
       console.warn(result.reason ?? "Invalid selection.");
@@ -272,24 +328,31 @@ export class SpellcastGame {
 
     player.score += points;
     player.gems += gemsEarned;
-
+    this.logEvent(
+      `Round ${this.round}: ${player.name} scored ${points} pts${gemsEarned ? ` and earned ${gemsEarned} gem(s)` : ""} with "${word.toUpperCase()}".`
+    );
     this.board.refreshTiles(selection);
     this.board.clearSelection();
     this.updateWord([]);
     this.advanceTurn();
   };
 
-  private onShuffle = () => {
+  private onShuffle = async () => {
+    if (this.swapMode) this.exitSwapMode();
     const player = this.players[this.currentPlayerIndex];
     if (player.gems < 1) {
       console.warn("Need 1 gem to shuffle.");
       return;
     }
+    const confirmed = await this.showConfirmation("Shuffle the board for 1 gem?");
+    if (!confirmed) return;
+
     player.gems -= 1;
     this.board.shuffleLetters();
     this.board.clearSelection();
     this.updateWord([]);
     this.renderPlayers();
+    this.logEvent(`Round ${this.round}: ${player.name} used Shuffle (-1 gem).`);
   };
 
   private onResetWord = () => {
@@ -298,33 +361,43 @@ export class SpellcastGame {
   };
 
   private onRerollLetter = () => {
-    const selection = this.board.getSelection();
+    if (this.swapMode) {
+      this.exitSwapMode();
+      return;
+    }
     const player = this.players[this.currentPlayerIndex];
-    if (player.gems < 1) {
-      console.warn("Need 1 gem to change a letter.");
+    if (player.gems < 3) {
+      console.warn("Need 3 gems to swap a letter.");
       return;
     }
-    if (!selection.length) {
-      console.warn("Select a tile to change its letter.");
-      return;
-    }
-
-    player.gems -= 1;
-    const tile = selection[selection.length - 1];
-    this.board.rerollLetter(tile);
-    this.updateWord(this.board.getSelection());
-    this.renderPlayers();
+    this.swapMode = true;
+    this.board.setSwapMode(true);
+    this.board.clearSelection();
+    this.board.setHovered(undefined);
+    this.updateWord([]);
   };
+
+  private exitSwapMode() {
+    if (!this.swapMode) return;
+    this.swapMode = false;
+    this.board.setSwapMode(false);
+    this.board.setHovered(undefined);
+  }
 
   private advanceTurn() {
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
-    if (this.currentPlayerIndex === 0 && this.round < this.totalRounds) {
-      this.round += 1;
-      this.updateRoundLabel();
-      this.board.setMultipliersEnabled(this.round > 1);
-      this.board.refreshTiles(this.board.allTiles());
-      this.board.clearSelection();
-      this.updateWord([]);
+    if (this.currentPlayerIndex === 0) {
+      if (this.round < this.totalRounds) {
+        this.round += 1;
+        this.updateRoundLabel();
+        this.board.setMultipliersEnabled(this.round > 1);
+        this.board.setWordMultiplierEnabled(this.round > 1);
+        this.board.refreshTiles(this.board.allTiles(), true);
+        this.board.clearSelection();
+        this.updateWord([]);
+      } else {
+        this.endGame();
+      }
     }
     this.renderPlayers();
   }
@@ -332,11 +405,13 @@ export class SpellcastGame {
   private calculateWordScore(selection: Tile[], hasLongWordBonus: boolean): number {
     const baseScore = selection.reduce((total, tile) => {
       const base = LETTER_VALUES[tile.letter.toLowerCase()] ?? 0;
-      const multiplier =
+      const letterMultiplier =
         tile.multiplier === "tripleLetter" ? 3 : tile.multiplier === "doubleLetter" ? 2 : 1;
-      return total + base * multiplier;
+      return total + base * letterMultiplier;
     }, 0);
-    return baseScore + (hasLongWordBonus ? 10 : 0);
+    const hasDoubleWord = selection.some((tile) => tile.wordMultiplier === "doubleWord");
+    const total = hasDoubleWord ? baseScore * 2 : baseScore;
+    return total + (hasLongWordBonus ? 10 : 0);
   }
 
   private updateWord(selection: Tile[]) {
@@ -440,6 +515,205 @@ export class SpellcastGame {
   private updateRoundLabel() {
     if (this.roundLabel) {
       this.roundLabel.textContent = `Round ${this.round} of ${this.totalRounds}`;
+    }
+  }
+
+  private showConfirmation(message: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.isModalOpen = true;
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      const modal = document.createElement("div");
+      modal.className = "modal";
+
+      const text = document.createElement("p");
+      text.textContent = message;
+
+      const actions = document.createElement("div");
+      actions.className = "modal__actions";
+
+      const confirmBtn = document.createElement("button");
+      confirmBtn.textContent = "Confirm";
+      confirmBtn.className = "modal__btn primary";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.className = "modal__btn";
+
+      const cleanup = (result: boolean) => {
+        this.isModalOpen = false;
+        overlay.remove();
+        resolve(result);
+      };
+
+      confirmBtn.addEventListener("click", () => cleanup(true));
+      cancelBtn.addEventListener("click", () => cleanup(false));
+
+      actions.append(confirmBtn, cancelBtn);
+      modal.append(text, actions);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+    });
+  }
+
+  private endGame() {
+    const sorted = [...this.players].sort((a, b) => b.score - a.score);
+    const winner = sorted[0];
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+
+    const message = document.createElement("p");
+    message.innerHTML = `<strong>${winner.name}</strong> won with <strong>${winner.score} points</strong>`;
+
+    const countdown = document.createElement("p");
+    countdown.textContent = "A new game will begin in 5 seconds.";
+
+    modal.append(message, countdown);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    let remaining = 5;
+    const interval = window.setInterval(() => {
+      remaining -= 1;
+      countdown.textContent = `A new game will begin in ${remaining} second${remaining === 1 ? "" : "s"}.`;
+      if (remaining <= 0) {
+        window.clearInterval(interval);
+        overlay.remove();
+        this.resetGame();
+      }
+    }, 1000);
+  }
+
+  private handleSwapSelection = async (tile: Tile) => {
+    const player = this.players[this.currentPlayerIndex];
+    if (player.gems < 3) {
+      console.warn("Need 3 gems to swap a letter.");
+      this.exitSwapMode();
+      return;
+    }
+
+    const letter = await this.showLetterPicker();
+    if (!letter) {
+      this.exitSwapMode();
+      return;
+    }
+
+    player.gems -= 3;
+    this.board.swapTileLetter(tile, letter);
+    this.board.clearSelection();
+    this.board.setHovered(undefined);
+    this.updateWord([]);
+    this.exitSwapMode();
+    this.renderPlayers();
+    this.logEvent(`Round ${this.round}: ${player.name} swapped a letter to "${letter}".`);
+  };
+
+  private showLetterPicker(): Promise<string | null> {
+    return new Promise((resolve) => {
+      this.isModalOpen = true;
+      const overlay = document.createElement("div");
+      overlay.className = "modal-overlay";
+      const modal = document.createElement("div");
+      modal.className = "modal";
+
+      const text = document.createElement("p");
+      text.textContent = "Select a new letter";
+
+      const grid = document.createElement("div");
+      grid.className = "letter-picker";
+      for (let code = 65; code <= 90; code += 1) {
+        const letter = String.fromCharCode(code);
+        const btn = document.createElement("button");
+        btn.className = "letter-picker__btn";
+        btn.textContent = letter;
+        btn.addEventListener("click", () => cleanup(letter));
+        grid.appendChild(btn);
+      }
+
+      const actions = document.createElement("div");
+      actions.className = "modal__actions";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.className = "modal__btn";
+      cancelBtn.textContent = "Cancel";
+      cancelBtn.addEventListener("click", () => cleanup(null));
+
+      actions.append(cancelBtn);
+      modal.append(text, grid, actions);
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const cleanup = (value: string | null) => {
+        this.isModalOpen = false;
+        overlay.remove();
+        resolve(value);
+      };
+    });
+  }
+
+  private resetGame() {
+    this.round = 1;
+    this.currentPlayerIndex = 0;
+    this.players.forEach((player, index) => {
+      player.score = 0;
+      player.gems = 3;
+      player.name = `Player ${index + 1}`;
+    });
+    this.board.setMultipliersEnabled(false);
+    this.board.setWordMultiplierEnabled(false);
+    this.board.refreshTiles(this.board.allTiles(), true);
+    this.board.clearSelection();
+    this.updateWord([]);
+    this.updateRoundLabel();
+    this.renderPlayers();
+    this.gameLog = [];
+  }
+
+  private showActivityLog() {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.style.maxHeight = "70vh";
+    modal.style.overflowY = "auto";
+
+    const title = document.createElement("h3");
+    title.textContent = "Game Activity Log";
+
+    const list = document.createElement("ul");
+    list.className = "activity-log";
+    if (this.gameLog.length === 0) {
+      const empty = document.createElement("p");
+      empty.textContent = "No activity yet.";
+      modal.append(title, empty);
+    } else {
+      this.gameLog.slice().forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = entry;
+        list.appendChild(item);
+      });
+      modal.append(title, list);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "modal__actions";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "modal__btn primary";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => overlay.remove());
+    actions.append(closeBtn);
+
+    modal.append(actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  private logEvent(entry: string) {
+    this.gameLog.push(entry);
+    if (this.gameLog.length > 50) {
+      this.gameLog.shift();
     }
   }
 }
