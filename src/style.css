@@ -184,6 +184,16 @@ body {
   z-index: 2;
 }
 
+.word-box--valid {
+  border-color: rgba(122, 215, 255, 0.8);
+  box-shadow: 0 10px 30px rgba(74, 181, 255, 0.45);
+}
+
+.word-box--invalid {
+  border-color: rgba(255, 105, 97, 0.85);
+  box-shadow: 0 10px 30px rgba(255, 105, 97, 0.4);
+}
+
 .sidebar {
   flex: 0 0 260px;
   background: rgba(10, 15, 26, 0.85);
@@ -209,6 +219,15 @@ body {
   color: #b7d6ff;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.round-indicator {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: #8fb7ff;
 }
 
 .players {

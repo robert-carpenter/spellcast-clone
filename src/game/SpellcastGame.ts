@@ -18,6 +18,7 @@ interface Player {
 
 export class SpellcastGame {
   private frustumSize = 16;
+  private readonly totalRounds = 5;
   private container: HTMLElement;
   private boardArea: HTMLDivElement;
   private boardViewport: HTMLDivElement;
@@ -38,6 +39,9 @@ export class SpellcastGame {
   private rerollButton: HTMLButtonElement;
   private controlsWrap: HTMLElement;
   private powerPanel: HTMLDivElement;
+  private dictionary: Set<string>;
+  private round = 1;
+  private roundLabel!: HTMLElement;
 
   private players: Player[] = [
     { id: "p1", name: "Arcanist", score: 0, gems: 3 },
@@ -47,8 +51,9 @@ export class SpellcastGame {
   ];
   private currentPlayerIndex = 0;
 
-  constructor(target: HTMLElement) {
+  constructor(target: HTMLElement, dictionary: Set<string>) {
     this.container = target;
+    this.dictionary = dictionary;
     this.container.innerHTML = "";
     this.container.classList.add("game-shell");
 
@@ -87,6 +92,7 @@ export class SpellcastGame {
     this.board.scale.setScalar(1.75); // upscale grid by 75%
     this.scene.add(this.board);
     this.updateBoardPlacement();
+    this.board.setMultipliersEnabled(this.round > 1);
 
     const hud = this.createHud();
     this.controlsWrap = hud.controls;
@@ -194,8 +200,8 @@ export class SpellcastGame {
 
     const heading = document.createElement("div");
     heading.className = "sidebar__heading";
-    heading.textContent = "Players";
-
+    heading.innerHTML = `Players <span class="round-indicator">Round ${this.round} of ${this.totalRounds}</span>`;
+    this.roundLabel = heading.querySelector(".round-indicator")!;
     const list = document.createElement("div");
     list.className = "players";
 
@@ -253,13 +259,21 @@ export class SpellcastGame {
     }
 
     const word = selection.map((t) => t.letter).join("");
-    const points = this.calculateWordScore(selection);
+    const normalizedWord = word.toUpperCase();
+    if (!this.dictionary.has(normalizedWord)) {
+      console.warn(`"${word}" is not a valid word.`);
+      this.setWordBoxValidity(false);
+      return;
+    }
+
+    const points = this.calculateWordScore(selection, word.length >= 6);
     const gemsEarned = this.board.collectGemsFromSelection();
     const player = this.players[this.currentPlayerIndex];
 
     player.score += points;
     player.gems += gemsEarned;
 
+    this.board.refreshTiles(selection);
     this.board.clearSelection();
     this.updateWord([]);
     this.advanceTurn();
@@ -304,21 +318,45 @@ export class SpellcastGame {
 
   private advanceTurn() {
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
+    if (this.currentPlayerIndex === 0 && this.round < this.totalRounds) {
+      this.round += 1;
+      this.updateRoundLabel();
+      this.board.setMultipliersEnabled(this.round > 1);
+      this.board.refreshTiles(this.board.allTiles());
+      this.board.clearSelection();
+      this.updateWord([]);
+    }
     this.renderPlayers();
   }
 
-  private calculateWordScore(selection: Tile[]): number {
-    return selection.reduce((total, tile) => {
+  private calculateWordScore(selection: Tile[], hasLongWordBonus: boolean): number {
+    const baseScore = selection.reduce((total, tile) => {
       const base = LETTER_VALUES[tile.letter.toLowerCase()] ?? 0;
       const multiplier =
         tile.multiplier === "tripleLetter" ? 3 : tile.multiplier === "doubleLetter" ? 2 : 1;
       return total + base * multiplier;
     }, 0);
+    return baseScore + (hasLongWordBonus ? 10 : 0);
   }
 
   private updateWord(selection: Tile[]) {
     const word = selection.map((t) => t.letter).join("").toUpperCase();
     this.wordBox.textContent = word || "—";
+    if (!word) {
+      this.setWordBoxValidity(null);
+      return;
+    }
+    const isValid = this.dictionary.has(word);
+    this.setWordBoxValidity(isValid);
+  }
+
+  private setWordBoxValidity(state: boolean | null) {
+    this.wordBox.classList.remove("word-box--valid", "word-box--invalid");
+    if (state === true) {
+      this.wordBox.classList.add("word-box--valid");
+    } else if (state === false) {
+      this.wordBox.classList.add("word-box--invalid");
+    }
   }
 
   private onResize = () => {
@@ -380,12 +418,12 @@ export class SpellcastGame {
     const boardLeftPx = (boardLeftWorld - leftBound) * pxPerWorldX;
     const boardTopPx = (topBound - boardTopWorld) * pxPerWorldY;
     const boxHeight = this.wordBox.offsetHeight || 54;
-    const marginPx = 8;
-    const topPx = Math.max(boardTopPx - boxHeight - marginPx, 0);
+    const marginPx = 15;
+    const topPx = Math.max(boxHeight/2 - marginPx, 0);
 
     this.wordBox.style.width = `${boardWidthPx}px`;
     this.wordBox.style.left = `${boardLeftPx}px`;
-    this.wordBox.style.top = `${(boxHeight / 2) - 10}px`;
+    this.wordBox.style.top = `${topPx}px`;
     this.boardHeader.style.width = `${boardWidthPx}px`;
     this.boardHeader.style.marginLeft = `${boardLeftPx}px`;
     if (this.controlsWrap) {
@@ -397,5 +435,11 @@ export class SpellcastGame {
   private tick() {
     this.animationId = requestAnimationFrame(this.tick);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private updateRoundLabel() {
+    if (this.roundLabel) {
+      this.roundLabel.textContent = `Round ${this.round} of ${this.totalRounds}`;
+    }
   }
 }

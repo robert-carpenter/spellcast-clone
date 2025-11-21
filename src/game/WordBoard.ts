@@ -29,7 +29,7 @@ export interface Tile {
   state: TileState;
   hasGem: boolean;
   multiplier: Multiplier;
-  badge?: Mesh;
+  badge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -55,6 +55,7 @@ export class WordBoard extends Group {
   private connectionThickness = 0.2;
   private badgeGeometry = new PlaneGeometry(0.55, 0.55);
   private badgeMaterials = new Map<Multiplier, MeshBasicMaterial>();
+  private multipliersEnabled = true;
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -189,6 +190,31 @@ export class WordBoard extends Group {
     this.updateSelectionLine();
   }
 
+  public refreshTiles(tiles: Tile[]) {
+    tiles.forEach((tile) => {
+      tile.letter = this.normalizeLetter(this.randomLetter());
+      tile.hasGem = Math.random() < GEM_CHANCE;
+      tile.multiplier = "none";
+      this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+      this.updateMultiplierBadge(tile);
+    });
+    this.ensureMultiplier(tiles);
+    this.updateSelectionLine();
+  }
+
+  public setMultipliersEnabled(enabled: boolean) {
+    this.multipliersEnabled = enabled;
+    if (!enabled) {
+      this.tiles.forEach((tile) => {
+        tile.multiplier = "none";
+        this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+        this.updateMultiplierBadge(tile);
+      });
+    } else {
+      this.ensureMultiplier();
+    }
+  }
+
   public width(): number {
     return (this.cols - 1) * this.tileSize;
   }
@@ -223,6 +249,24 @@ export class WordBoard extends Group {
       this.connectionPool.push(mesh);
     }
     this.activeConnections = [];
+  }
+
+  private ensureMultiplier(exclude: Tile[] = []) {
+    if (!this.multipliersEnabled) return;
+    const existing = this.tiles.find((tile) => tile.multiplier !== "none");
+    if (existing) return;
+
+    const excludedSet = new Set(exclude);
+    let candidates = this.tiles.filter((tile) => tile.multiplier === "none" && !excludedSet.has(tile));
+    if (!candidates.length) {
+      candidates = this.tiles.filter((tile) => tile.multiplier === "none");
+    }
+    if (!candidates.length) return;
+
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    target.multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
+    this.applyStyle(target, this.selected.has(target) ? "selected" : "base");
+    this.updateMultiplierBadge(target);
   }
 
   private createMultiplierBadge(multiplier: Multiplier): Mesh {
@@ -326,7 +370,7 @@ export class WordBoard extends Group {
       const multiplier = index === specialIndex ? specialType : "none";
       const material = new MeshBasicMaterial({
         color: "#ffffff",
-        map: this.getLetterTexture(data.letter, "base", data.hasGem),
+        map: this.getLetterTexture(data.letter, "base", data.hasGem, multiplier),
         transparent: true
       });
       const mesh: TileMesh = new Mesh(this.baseGeometry, material);
@@ -347,6 +391,8 @@ export class WordBoard extends Group {
       this.add(mesh);
       this.updateMultiplierBadge(tile);
     });
+
+    this.ensureMultiplier();
   }
 
   private randomLetter(): string {
@@ -360,21 +406,21 @@ export class WordBoard extends Group {
 
   private applyStyle(tile: Tile, state: TileState) {
     tile.state = state;
-    tile.mesh.material.map = this.getLetterTexture(tile.letter, state, tile.hasGem);
+    tile.mesh.material.map = this.getLetterTexture(tile.letter, state, tile.hasGem, tile.multiplier);
     tile.mesh.material.needsUpdate = true;
   }
 
-  private getLetterTexture(letter: string, state: TileState, hasGem: boolean): Texture {
-    const key = `${letter}-${state}-${hasGem ? "gem" : "plain"}`;
+  private getLetterTexture(letter: string, state: TileState, hasGem: boolean, multiplier: Multiplier): Texture {
+    const key = `${letter}-${state}-${hasGem ? "gem" : "plain"}-${multiplier}`;
     const cached = this.textureCache.get(key);
     if (cached) return cached;
 
-    const tex = this.makeLetterTexture(letter, state, hasGem);
+    const tex = this.makeLetterTexture(letter, state, hasGem, multiplier);
     this.textureCache.set(key, tex);
     return tex;
   }
 
-  private makeLetterTexture(letter: string, state: TileState, hasGem: boolean): Texture {
+  private makeLetterTexture(letter: string, state: TileState, hasGem: boolean, multiplier: Multiplier): Texture {
     const size = 256;
     const canvas = document.createElement("canvas");
     canvas.width = size;
