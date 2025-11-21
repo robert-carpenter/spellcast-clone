@@ -9,11 +9,18 @@ import {
 import { LETTER_VALUES } from "./constants";
 import { WordBoard, Tile } from "./WordBoard";
 
-interface Player {
+export interface Player {
   id: string;
   name: string;
   score: number;
   gems: number;
+  isHost: boolean;
+}
+
+export interface InitialRoomState {
+  roomId: string;
+  playerId: string;
+  players: Player[];
 }
 
 export class SpellcastGame {
@@ -45,16 +52,32 @@ export class SpellcastGame {
   private isModalOpen = false;
   private swapMode = false;
   private gameLog: string[] = [];
-
-  private players: Player[] = [
-    { id: "p1", name: "Player 1", score: 0, gems: 3 },
-    { id: "p2", name: "Player 2", score: 0, gems: 3 }
-  ];
+  private players: Player[];
+  private roomId?: string;
+  private playerId?: string;
+  private isMultiplayer = false;
   private currentPlayerIndex = 0;
 
-  constructor(target: HTMLElement, dictionary: Set<string>) {
+  constructor(target: HTMLElement, dictionary: Set<string>, roomState?: InitialRoomState) {
     this.container = target;
     this.dictionary = dictionary;
+    this.isMultiplayer = Boolean(roomState);
+    if (roomState && roomState.players.length) {
+      this.players = roomState.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        score: p.score ?? 0,
+        gems: p.gems ?? 3,
+        isHost: p.isHost ?? false
+      }));
+      this.roomId = roomState.roomId;
+      this.playerId = roomState.playerId;
+    } else {
+      this.players = [
+        { id: "local-1", name: "Player 1", score: 0, gems: 3, isHost: true },
+        { id: "local-2", name: "Player 2", score: 0, gems: 3, isHost: false }
+      ];
+    }
     this.container.innerHTML = "";
     this.container.classList.add("game-shell");
 
@@ -232,7 +255,12 @@ export class SpellcastGame {
     removeBtn.addEventListener("click", this.onRemovePlayer);
 
     controls.append(removeBtn, addBtn);
-    wrap.append(heading, list, controls);
+    if (this.isMultiplayer) {
+      controls.style.display = "none";
+      wrap.append(heading, list);
+    } else {
+      wrap.append(heading, list, controls);
+    }
     this.sidebar.appendChild(wrap);
     return list;
   }
@@ -258,6 +286,7 @@ export class SpellcastGame {
   }
 
   private onAddPlayer = () => {
+    if (this.isMultiplayer) return;
     if (this.players.length >= 6) return;
     const id = `p${this.players.length + 1}`;
     this.players.push({
@@ -270,6 +299,7 @@ export class SpellcastGame {
   };
 
   private onRemovePlayer = () => {
+    if (this.isMultiplayer) return;
     if (this.players.length <= 2) return;
     this.players.pop();
     if (this.currentPlayerIndex >= this.players.length) {
@@ -659,7 +689,9 @@ export class SpellcastGame {
     this.players.forEach((player, index) => {
       player.score = 0;
       player.gems = 3;
-      player.name = `Player ${index + 1}`;
+      if (!this.isMultiplayer) {
+        player.name = `Player ${index + 1}`;
+      }
     });
     this.board.setMultipliersEnabled(false);
     this.board.setWordMultiplierEnabled(false);
@@ -708,6 +740,35 @@ export class SpellcastGame {
     modal.append(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+  }
+
+  public syncRoomPlayers(snapshot: Array<{ id: string; name: string; isHost: boolean }>) {
+    if (!this.roomId) return;
+    const lookup = new Map(this.players.map((player) => [player.id, player]));
+    const next: Player[] = [];
+    snapshot.forEach((incoming) => {
+      const existing = lookup.get(incoming.id);
+      if (existing) {
+        existing.name = incoming.name;
+        existing.isHost = incoming.isHost;
+        next.push(existing);
+      } else {
+        next.push({
+          id: incoming.id,
+          name: incoming.name,
+          score: 0,
+          gems: 3,
+          isHost: incoming.isHost
+        });
+      }
+    });
+    this.players = next;
+    if (this.players.length === 0) {
+      this.currentPlayerIndex = 0;
+    } else if (this.currentPlayerIndex >= this.players.length) {
+      this.currentPlayerIndex = this.currentPlayerIndex % this.players.length;
+    }
+    this.renderPlayers();
   }
 
   private logEvent(entry: string) {

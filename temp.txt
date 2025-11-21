@@ -1,0 +1,1 @@
+(Get-Content src/network/api.ts) -join "`n"
