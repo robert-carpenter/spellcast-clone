@@ -6,8 +6,10 @@ import {
   Vector2,
   WebGLRenderer
 } from "three";
+import type { GameSnapshot } from "../../shared/gameTypes";
 import { LETTER_VALUES } from "./constants";
 import { WordBoard, Tile } from "./WordBoard";
+import { soundManager } from "../audio/SoundManager";
 
 export interface Player {
   id: string;
@@ -21,6 +23,16 @@ export interface InitialRoomState {
   roomId: string;
   playerId: string;
   players: Player[];
+  game?: GameSnapshot;
+}
+
+export interface MultiplayerController {
+  submitWord(tileIds: string[]): void | Promise<void>;
+  shuffle(): void | Promise<void>;
+  requestSwapMode(): void | Promise<void>;
+  applySwap(tileId: string, letter: string): void | Promise<void>;
+  cancelSwap(): void | Promise<void>;
+  updateSelection(tileIds: string[]): void | Promise<void>;
 }
 
 export class SpellcastGame {
@@ -52,16 +64,29 @@ export class SpellcastGame {
   private isModalOpen = false;
   private swapMode = false;
   private gameLog: string[] = [];
+  private lastLogLength = 0;
   private players: Player[];
   private roomId?: string;
   private playerId?: string;
   private isMultiplayer = false;
+  private multiplayer: MultiplayerController | null = null;
   private currentPlayerIndex = 0;
+  private serverCompletionHandled = false;
+  private pendingSnapshot?: GameSnapshot;
+  private lastSubmissionToken?: string;
+  private lastActivePlayerId?: string;
+  private wasMyTurn = false;
 
-  constructor(target: HTMLElement, dictionary: Set<string>, roomState?: InitialRoomState) {
+  constructor(
+    target: HTMLElement,
+    dictionary: Set<string>,
+    roomState?: InitialRoomState,
+    options?: { multiplayer?: MultiplayerController }
+  ) {
     this.container = target;
     this.dictionary = dictionary;
-    this.isMultiplayer = Boolean(roomState);
+    this.multiplayer = options?.multiplayer ?? null;
+    this.isMultiplayer = Boolean(roomState ?? options?.multiplayer);
     if (roomState && roomState.players.length) {
       this.players = roomState.players.map((p) => ({
         id: p.id,
@@ -78,6 +103,7 @@ export class SpellcastGame {
         { id: "local-2", name: "Player 2", score: 0, gems: 3, isHost: false }
       ];
     }
+    this.lastActivePlayerId = this.players[this.currentPlayerIndex]?.id;
     this.container.innerHTML = "";
     this.container.classList.add("game-shell");
 
@@ -112,13 +138,16 @@ export class SpellcastGame {
     this.camera.position.set(0, 0, 15);
     this.camera.lookAt(0, 0, 0);
 
-    this.board = new WordBoard(5, 5);
+    this.board = new WordBoard(5, 5, { vowelRatio: 0.45 });
     this.board.scale.setScalar(1.75); // upscale grid by 75%
     this.scene.add(this.board);
     this.updateBoardPlacement();
-    this.board.setMultipliersEnabled(this.round > 1);
-    this.board.setWordMultiplierEnabled(this.round > 1);
-    this.board.setMultipliersEnabled(this.round > 1);
+    if (roomState?.game) {
+      this.pendingSnapshot = roomState.game;
+    } else {
+      this.board.setMultipliersEnabled(this.round > 1);
+      this.board.setWordMultiplierEnabled(this.round > 1);
+    }
 
     const hud = this.createHud();
     this.controlsWrap = hud.controls;
@@ -131,6 +160,10 @@ export class SpellcastGame {
 
     this.playersListEl = this.createSidebar();
     this.renderPlayers();
+    if (this.pendingSnapshot) {
+      this.applyGameSnapshot(this.pendingSnapshot);
+      this.pendingSnapshot = undefined;
+    }
 
     this.onResize();
 
@@ -143,6 +176,7 @@ export class SpellcastGame {
     this.rerollButton.addEventListener("click", this.onRerollLetter);
 
     this.tick = this.tick.bind(this);
+    this.updateTurnUi();
     this.tick();
   }
 
@@ -310,6 +344,10 @@ export class SpellcastGame {
 
   private onPointerMove = (event: PointerEvent) => {
     if (this.isModalOpen) return;
+    if (this.isMultiplayer && !this.isMyTurn()) {
+      this.board.setHovered(undefined);
+      return;
+    }
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -320,6 +358,7 @@ export class SpellcastGame {
 
   private onClick = () => {
     if (this.isModalOpen) return;
+    if (this.isMultiplayer && !this.isMyTurn()) return;
     const tile = this.intersectTile();
     if (!tile) return;
 
@@ -335,12 +374,22 @@ export class SpellcastGame {
     }
 
     this.updateWord(result.selection);
+    this.broadcastSelection(result.selection);
+    if (result.action === "added") {
+      soundManager.play("tile-select");
+    } else if (result.action === "removed") {
+      soundManager.play("tile-deselect");
+    }
   };
 
   private onSubmitWord = () => {
     const selection = this.board.getSelection();
     if (!selection.length) {
       console.warn("Select tiles to form a word.");
+      return;
+    }
+    if (this.isMultiplayer && !this.isMyTurn()) {
+      console.warn("Wait for your turn before submitting.");
       return;
     }
 
@@ -352,23 +401,50 @@ export class SpellcastGame {
       return;
     }
 
+    if (this.isMultiplayer && this.multiplayer) {
+      const player = this.players[this.currentPlayerIndex];
+      const tileIds = selection.map((tile) => this.board.getTileId(tile));
+      const submissionKey = `${this.round}:${player?.id ?? "unknown"}:${normalizedWord}`;
+      this.lastSubmissionToken = submissionKey;
+      soundManager.play("word-submit");
+      this.multiplayer.submitWord(tileIds);
+      this.board.clearSelection();
+      this.updateWord([]);
+      this.broadcastSelection([]);
+      return;
+    }
+
     const points = this.calculateWordScore(selection, word.length >= 6);
     const gemsEarned = this.board.collectGemsFromSelection();
     const player = this.players[this.currentPlayerIndex];
 
     player.score += points;
     player.gems += gemsEarned;
+    const submissionKey = `${this.round}:${player.id}:${normalizedWord}`;
+    this.lastSubmissionToken = submissionKey;
+    soundManager.play("word-submit");
     this.logEvent(
       `Round ${this.round}: ${player.name} scored ${points} pts${gemsEarned ? ` and earned ${gemsEarned} gem(s)` : ""} with "${word.toUpperCase()}".`
     );
     this.board.refreshTiles(selection);
     this.board.clearSelection();
     this.updateWord([]);
+    this.broadcastSelection([]);
     this.advanceTurn();
   };
 
   private onShuffle = async () => {
-    if (this.swapMode) this.exitSwapMode();
+    if (this.isMultiplayer && !this.isMyTurn()) {
+      console.warn("Wait for your turn to use Shuffle.");
+      return;
+    }
+    if (this.swapMode) {
+      if (this.isMultiplayer && this.multiplayer) {
+        this.multiplayer.cancelSwap();
+      } else {
+        this.exitSwapMode();
+      }
+    }
     const player = this.players[this.currentPlayerIndex];
     if (player.gems < 1) {
       console.warn("Need 1 gem to shuffle.");
@@ -377,10 +453,19 @@ export class SpellcastGame {
     const confirmed = await this.showConfirmation("Shuffle the board for 1 gem?");
     if (!confirmed) return;
 
+    if (this.isMultiplayer && this.multiplayer) {
+      this.multiplayer.shuffle();
+      this.board.clearSelection();
+      this.updateWord([]);
+      this.broadcastSelection([]);
+      return;
+    }
+
     player.gems -= 1;
     this.board.shuffleLetters();
     this.board.clearSelection();
     this.updateWord([]);
+    this.broadcastSelection([]);
     this.renderPlayers();
     this.logEvent(`Round ${this.round}: ${player.name} used Shuffle (-1 gem).`);
   };
@@ -388,11 +473,28 @@ export class SpellcastGame {
   private onResetWord = () => {
     this.board.clearSelection();
     this.updateWord([]);
+    this.broadcastSelection([]);
   };
 
   private onRerollLetter = () => {
     if (this.swapMode) {
-      this.exitSwapMode();
+      if (this.isMultiplayer && this.multiplayer) {
+        this.multiplayer.cancelSwap();
+      } else {
+        this.exitSwapMode();
+      }
+      return;
+    }
+    if (this.isMultiplayer && !this.isMyTurn()) {
+      console.warn("Wait for your turn to use Swap.");
+      return;
+    }
+    if (this.isMultiplayer && this.multiplayer) {
+      this.multiplayer.requestSwapMode();
+      this.board.clearSelection();
+      this.board.setHovered(undefined);
+      this.updateWord([]);
+      this.broadcastSelection([]);
       return;
     }
     const player = this.players[this.currentPlayerIndex];
@@ -415,6 +517,7 @@ export class SpellcastGame {
   }
 
   private advanceTurn() {
+    const previousId = this.players[this.currentPlayerIndex]?.id;
     this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
     if (this.currentPlayerIndex === 0) {
       if (this.round < this.totalRounds) {
@@ -425,10 +528,12 @@ export class SpellcastGame {
         this.board.refreshTiles(this.board.allTiles(), true);
         this.board.clearSelection();
         this.updateWord([]);
+        this.broadcastSelection([]);
       } else {
         this.endGame();
       }
     }
+    this.onTurnChanged(this.players[this.currentPlayerIndex]?.id, previousId);
     this.renderPlayers();
   }
 
@@ -618,6 +723,21 @@ export class SpellcastGame {
 
   private handleSwapSelection = async (tile: Tile) => {
     const player = this.players[this.currentPlayerIndex];
+    if (this.isMultiplayer) {
+      if (!this.multiplayer) return;
+      const letter = await this.showLetterPicker();
+      if (!letter) {
+        this.broadcastSelection([]);
+        return;
+      }
+      const tileId = this.board.getTileId(tile);
+      this.multiplayer.applySwap(tileId, letter);
+      this.board.clearSelection();
+      this.board.setHovered(undefined);
+      this.updateWord([]);
+      this.broadcastSelection([]);
+      return;
+    }
     if (player.gems < 3) {
       console.warn("Need 3 gems to swap a letter.");
       this.exitSwapMode();
@@ -686,6 +806,7 @@ export class SpellcastGame {
   private resetGame() {
     this.round = 1;
     this.currentPlayerIndex = 0;
+    this.lastSubmissionToken = undefined;
     this.players.forEach((player, index) => {
       player.score = 0;
       player.gems = 3;
@@ -693,6 +814,7 @@ export class SpellcastGame {
         player.name = `Player ${index + 1}`;
       }
     });
+    this.lastActivePlayerId = this.players[0]?.id;
     this.board.setMultipliersEnabled(false);
     this.board.setWordMultiplierEnabled(false);
     this.board.refreshTiles(this.board.allTiles(), true);
@@ -742,7 +864,9 @@ export class SpellcastGame {
     document.body.appendChild(overlay);
   }
 
-  public syncRoomPlayers(snapshot: Array<{ id: string; name: string; isHost: boolean }>) {
+  public syncRoomPlayers(
+    snapshot: Array<{ id: string; name: string; isHost: boolean; score?: number; gems?: number }>
+  ) {
     if (!this.roomId) return;
     const lookup = new Map(this.players.map((player) => [player.id, player]));
     const next: Player[] = [];
@@ -751,6 +875,8 @@ export class SpellcastGame {
       if (existing) {
         existing.name = incoming.name;
         existing.isHost = incoming.isHost;
+        if (typeof incoming.score === "number") existing.score = incoming.score;
+        if (typeof incoming.gems === "number") existing.gems = incoming.gems;
         next.push(existing);
       } else {
         next.push({
@@ -769,12 +895,118 @@ export class SpellcastGame {
       this.currentPlayerIndex = this.currentPlayerIndex % this.players.length;
     }
     this.renderPlayers();
+    this.updateTurnUi();
   }
 
   private logEvent(entry: string) {
     this.gameLog.push(entry);
     if (this.gameLog.length > 50) {
       this.gameLog.shift();
+    }
+  }
+
+  private broadcastSelection(selection: Tile[]) {
+    if (!this.isMultiplayer || !this.multiplayer) return;
+    const ids = selection.map((tile) => this.board.getTileId(tile));
+    this.multiplayer.updateSelection(ids);
+  }
+
+  private onTurnChanged(newPlayerId?: string, previousPlayerId?: string) {
+    if (!newPlayerId || newPlayerId === previousPlayerId) return;
+    this.lastActivePlayerId = newPlayerId;
+    soundManager.play("turn-change");
+  }
+
+  private updateTurnUi() {
+    if (!this.isMultiplayer) return;
+    const isMyTurn = this.isMyTurn();
+    if (this.wasMyTurn !== isMyTurn && isMyTurn) {
+      this.board.clearSelection();
+      this.board.setHovered(undefined);
+      this.updateWord([]);
+      this.broadcastSelection([]);
+    }
+    this.wasMyTurn = isMyTurn;
+    this.submitButton.disabled = !isMyTurn;
+    this.shuffleButton.disabled = !isMyTurn;
+    this.rerollButton.disabled = !isMyTurn;
+    if (this.controlsWrap) {
+      this.controlsWrap.style.display = isMyTurn ? "flex" : "none";
+    }
+    if (this.powerPanel) {
+      this.powerPanel.style.display = isMyTurn ? "flex" : "none";
+    }
+  }
+
+  private isMyTurn(): boolean {
+    if (!this.isMultiplayer || !this.playerId) return false;
+    const current = this.players[this.currentPlayerIndex];
+    return current?.id === this.playerId;
+  }
+
+  private showServerWinner(winnerId?: string) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    const winner =
+      winnerId && this.players.find((player) => player.id === winnerId)?.name
+        ? this.players.find((player) => player.id === winnerId)!.name
+        : "Game";
+    const message = document.createElement("p");
+    message.innerHTML = `<strong>${winner}</strong> won the match.`;
+    const detail = document.createElement("p");
+    detail.textContent = "Waiting for the host to start a new game...";
+    const actions = document.createElement("div");
+    actions.className = "modal__actions";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "modal__btn primary";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => overlay.remove());
+    actions.append(closeBtn);
+    modal.append(message, detail, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  public applyRemoteSelection(playerId: string, tileIds: string[]) {
+    if (!this.isMultiplayer) return;
+    if (playerId === this.playerId) return;
+    if (this.isMyTurn()) return;
+    this.board.setSelectionFromIds(tileIds);
+    const selection = this.board.getSelection();
+    this.updateWord(selection);
+  }
+
+  public applyGameSnapshot(snapshot: GameSnapshot) {
+    this.board.applyExternalState(snapshot.tiles);
+    const previousId = this.players[this.currentPlayerIndex]?.id;
+    this.round = snapshot.round;
+    this.currentPlayerIndex = snapshot.currentPlayerIndex;
+    this.onTurnChanged(this.players[this.currentPlayerIndex]?.id, previousId);
+    this.board.setMultipliersEnabled(snapshot.multipliersEnabled);
+    this.board.setWordMultiplierEnabled(snapshot.wordMultiplierEnabled);
+    this.updateRoundLabel();
+    this.board.setSwapMode(snapshot.swapModePlayerId === this.playerId);
+    this.swapMode = snapshot.swapModePlayerId === this.playerId;
+    if (snapshot.log && snapshot.log.length !== this.lastLogLength) {
+      this.gameLog = [...snapshot.log];
+      this.lastLogLength = snapshot.log.length;
+    }
+    if (snapshot.lastSubmission) {
+      const token = `${snapshot.round}:${snapshot.lastSubmission.playerId}:${snapshot.lastSubmission.word}`;
+      if (token !== this.lastSubmissionToken) {
+        this.lastSubmissionToken = token;
+        soundManager.play("word-submit");
+      }
+    }
+    this.renderPlayers();
+    this.updateTurnUi();
+    if (snapshot.completed && !this.serverCompletionHandled) {
+      this.serverCompletionHandled = true;
+      this.showServerWinner(snapshot.winnerId);
+    } else if (!snapshot.completed) {
+      this.serverCompletionHandled = false;
     }
   }
 }

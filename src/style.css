@@ -419,6 +419,10 @@ body {
   z-index: 9999;
 }
 
+.landing-overlay--hidden {
+  display: none;
+}
+
 .landing-overlay--loading {
   cursor: progress;
 }
@@ -596,6 +600,12 @@ body {
   gap: 6px;
 }
 
+.lobby-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  margin: 8px 0;
+}
+
 .lobby-share__input {
   width: 100%;
   border-radius: 10px;
@@ -615,6 +625,14 @@ body {
   gap: 6px;
   max-height: 220px;
   overflow-y: auto;
+}
+
+.lobby-players__heading {
+  margin: 10px 0 4px;
+  font-size: 15px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(223, 233, 255, 0.8);
 }
 
 .lobby-player {

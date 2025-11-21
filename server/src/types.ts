@@ -1,3 +1,5 @@
+import { GameSnapshot } from "../../shared/gameTypes";
+
 export interface Player {
   id: string;
   name: string;
@@ -7,10 +9,16 @@ export interface Player {
   joinedAt: number;
 }
 
+export interface GameState extends GameSnapshot {
+  swapModePlayerId?: string;
+  log: string[];
+}
+
 export interface Room {
   id: string;
   createdAt: number;
   hostId: string;
   players: Player[];
   status: "lobby" | "in-progress";
+  game?: GameState;
 }

@@ -1,0 +1,367 @@
+import { LETTER_VALUES } from "../../shared/constants";
+import { GameSnapshot, LastSubmission, TileModel } from "../../shared/gameTypes";
+import { GameState, Player, Room } from "./types";
+
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const GEM_CHANCE = 0.25;
+const TRIPLE_CHANCE = 0.12;
+const BOARD_COLS = 5;
+const BOARD_ROWS = 5;
+const TOTAL_ROUNDS = 5;
+const LONG_WORD_THRESHOLD = 6;
+const LONG_WORD_BONUS = 10;
+
+export interface SubmitResult {
+  success: boolean;
+  error?: string;
+  payload?: {
+    word: string;
+    points: number;
+    gems: number;
+    longWordBonus: boolean;
+  };
+}
+
+export interface ActionResult {
+  success: boolean;
+  error?: string;
+}
+
+export function createInitialGameState(): GameState {
+  const tiles = createTiles(false, false);
+  return {
+    cols: BOARD_COLS,
+    rows: BOARD_ROWS,
+    tiles,
+    round: 1,
+    totalRounds: TOTAL_ROUNDS,
+    currentPlayerIndex: 0,
+    multipliersEnabled: false,
+    wordMultiplierEnabled: false,
+    swapModePlayerId: undefined,
+    lastSubmission: undefined,
+    completed: false,
+    winnerId: undefined,
+    log: []
+  };
+}
+
+export function startNewGame(room: Room) {
+  room.game = createInitialGameState();
+  room.players.forEach((player) => {
+    player.score = 0;
+    player.gems = 3;
+  });
+}
+
+export function submitWord(
+  room: Room,
+  playerId: string,
+  tileIds: string[],
+  dictionary: Set<string>
+): SubmitResult {
+  const game = requireGame(room);
+  if (!game) return { success: false, error: "Game not started." };
+  if (game.completed) {
+    return { success: false, error: "Game already completed." };
+  }
+  if (!tileIds.length) {
+    return { success: false, error: "Select tiles to form a word." };
+  }
+  const player = room.players[game.currentPlayerIndex];
+  if (!player || player.id !== playerId) {
+    return { success: false, error: "It is not your turn." };
+  }
+
+  const tiles = tileIds.map((id) => game.tiles.find((tile) => tile.id === id));
+  if (tiles.some((tile) => !tile)) {
+    return { success: false, error: "Invalid tile selection." };
+  }
+  const typedTiles = tiles as TileModel[];
+  if (!isValidSelection(typedTiles)) {
+    return {
+      success: false,
+      error: "Tiles must be unique and touch the previous tile."
+    };
+  }
+
+  const word = typedTiles.map((tile) => tile.letter).join("");
+  if (!dictionary.has(word.toUpperCase())) {
+    return { success: false, error: `"${word}" is not a valid word.` };
+  }
+
+  const longWordBonus = word.length >= LONG_WORD_THRESHOLD;
+  const points = calculateWordScore(typedTiles, longWordBonus);
+  const gems = typedTiles.filter((tile) => tile.hasGem).length;
+
+  player.score += points;
+  player.gems += gems;
+
+  refreshTiles(game, typedTiles);
+  assignMultipliers(game);
+
+  const submission: LastSubmission = {
+    playerId: player.id,
+    playerName: player.name,
+    word: word.toUpperCase(),
+    points,
+    gems,
+    longWordBonus
+  };
+  game.lastSubmission = submission;
+  addLogEntry(
+    game,
+    `Round ${game.round}: ${submission.playerName} scored ${submission.points} pts${
+      submission.gems ? ` and ${submission.gems} gem(s)` : ""
+    } with ${submission.word}.`
+  );
+
+  advanceTurn(room);
+
+  return {
+    success: true,
+    payload: {
+      word: submission.word,
+      points,
+      gems,
+      longWordBonus
+    }
+  };
+}
+
+export function shuffleBoard(room: Room, playerId: string): ActionResult {
+  const game = requireGame(room);
+  if (!game) return { success: false, error: "Game not started." };
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return { success: false, error: "Player not found." };
+  if (player.gems < 1) return { success: false, error: "Need 1 gem to shuffle." };
+  player.gems -= 1;
+  const payload = game.tiles.map((tile) => ({
+    letter: tile.letter,
+    hasGem: tile.hasGem,
+    multiplier: tile.multiplier,
+    wordMultiplier: tile.wordMultiplier
+  }));
+  for (let i = payload.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [payload[i], payload[j]] = [payload[j], payload[i]];
+  }
+  game.tiles.forEach((tile, index) => {
+    const data = payload[index];
+    tile.letter = data.letter;
+    tile.hasGem = data.hasGem;
+    tile.multiplier = data.multiplier;
+    tile.wordMultiplier = data.wordMultiplier;
+  });
+  return { success: true };
+}
+
+export function requestSwapMode(room: Room, playerId: string): ActionResult {
+  const game = requireGame(room);
+  if (!game) return { success: false, error: "Game not started." };
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return { success: false, error: "Player not found." };
+  if (player.gems < 3) return { success: false, error: "Need 3 gems to swap a letter." };
+  game.swapModePlayerId = playerId;
+  return { success: true };
+}
+
+export function applySwap(
+  room: Room,
+  playerId: string,
+  tileId: string,
+  letter: string
+): ActionResult {
+  const game = requireGame(room);
+  if (!game) return { success: false, error: "Game not started." };
+  const player = room.players.find((p) => p.id === playerId);
+  if (!player) return { success: false, error: "Player not found." };
+  if (game.swapModePlayerId !== playerId) {
+    return { success: false, error: "You are not swapping a letter." };
+  }
+  if (player.gems < 3) {
+    return { success: false, error: "You do not have enough gems." };
+  }
+  const tile = game.tiles.find((t) => t.id === tileId);
+  if (!tile) {
+    return { success: false, error: "Tile not found." };
+  }
+  player.gems -= 3;
+  tile.letter = normalizeLetter(letter);
+  tile.hasGem = tile.hasGem; // no change
+  game.swapModePlayerId = undefined;
+  return { success: true };
+}
+
+export function cancelSwap(room: Room, playerId: string) {
+  const game = requireGame(room);
+  if (!game) return;
+  if (game.swapModePlayerId === playerId) {
+    game.swapModePlayerId = undefined;
+  }
+}
+
+export function toPublicGameState(game?: GameState): GameSnapshot | undefined {
+  if (!game) return undefined;
+  return { ...game };
+}
+
+function createTiles(
+  multipliersEnabled: boolean,
+  wordMultiplierEnabled: boolean
+): TileModel[] {
+  const tiles: TileModel[] = [];
+  for (let y = 0; y < BOARD_ROWS; y += 1) {
+    for (let x = 0; x < BOARD_COLS; x += 1) {
+      tiles.push({
+        id: tileId(x, y),
+        x,
+        y,
+        letter: randomLetter(),
+        hasGem: Math.random() < GEM_CHANCE,
+        multiplier: "none",
+        wordMultiplier: "none"
+      });
+    }
+  }
+  if (multipliersEnabled) {
+    ensureLetterMultiplier(tiles);
+  }
+  if (wordMultiplierEnabled) {
+    ensureWordMultiplier(tiles);
+  }
+  return tiles;
+}
+
+function refreshTiles(game: GameState, tiles: TileModel[]) {
+  tiles.forEach((tile) => {
+    tile.letter = randomLetter();
+    tile.hasGem = Math.random() < GEM_CHANCE;
+    tile.multiplier = "none";
+    tile.wordMultiplier = game.wordMultiplierEnabled ? tile.wordMultiplier : "none";
+    if (!game.wordMultiplierEnabled) {
+      tile.wordMultiplier = "none";
+    }
+  });
+}
+
+function assignMultipliers(game: GameState) {
+  if (game.multipliersEnabled) {
+    ensureLetterMultiplier(game.tiles);
+  }
+  if (game.wordMultiplierEnabled) {
+    ensureWordMultiplier(game.tiles);
+  }
+}
+
+function ensureLetterMultiplier(tiles: TileModel[]) {
+  const existing = tiles.find((tile) => tile.multiplier !== "none");
+  if (existing) return;
+  const candidates = tiles.filter((tile) => tile.multiplier === "none");
+  if (!candidates.length) return;
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+  target.multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
+}
+
+function ensureWordMultiplier(tiles: TileModel[]) {
+  const existing = tiles.find((tile) => tile.wordMultiplier === "doubleWord");
+  if (existing) return;
+  const candidates = tiles.filter((tile) => tile.wordMultiplier === "none");
+  if (!candidates.length) return;
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+  target.wordMultiplier = "doubleWord";
+}
+
+function isValidSelection(tiles: TileModel[]): boolean {
+  const seen = new Set<string>();
+  for (let i = 0; i < tiles.length; i += 1) {
+    const tile = tiles[i];
+    if (seen.has(tile.id)) {
+      return false;
+    }
+    seen.add(tile.id);
+    if (i === 0) continue;
+    const prev = tiles[i - 1];
+    const dx = Math.abs(prev.x - tile.x);
+    const dy = Math.abs(prev.y - tile.y);
+    if (dx > 1 || dy > 1 || (dx === 0 && dy === 0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function calculateWordScore(tiles: TileModel[], hasLongWordBonus: boolean): number {
+  const baseScore = tiles.reduce((total, tile) => {
+    const base = LETTER_VALUES[tile.letter.toLowerCase()] ?? 0;
+    const multiplier =
+      tile.multiplier === "tripleLetter" ? 3 : tile.multiplier === "doubleLetter" ? 2 : 1;
+    return total + base * multiplier;
+  }, 0);
+  const hasDoubleWord = tiles.some((tile) => tile.wordMultiplier === "doubleWord");
+  const total = hasDoubleWord ? baseScore * 2 : baseScore;
+  return total + (hasLongWordBonus ? LONG_WORD_BONUS : 0);
+}
+
+function advanceTurn(room: Room) {
+  const game = requireGame(room);
+  if (!game) return;
+  const playerCount = room.players.length;
+  if (!playerCount) return;
+  game.currentPlayerIndex = (game.currentPlayerIndex + 1) % playerCount;
+  if (game.currentPlayerIndex === 0) {
+    if (game.round < game.totalRounds) {
+      game.round += 1;
+      if (game.round > 1) {
+        game.multipliersEnabled = true;
+        game.wordMultiplierEnabled = true;
+      }
+      refreshAllTiles(game);
+      assignMultipliers(game);
+    } else {
+      game.completed = true;
+      determineWinner(room);
+    }
+  }
+}
+
+function refreshAllTiles(game: GameState) {
+  game.tiles.forEach((tile) => {
+    tile.letter = randomLetter();
+    tile.hasGem = Math.random() < GEM_CHANCE;
+    tile.multiplier = "none";
+    tile.wordMultiplier = "none";
+  });
+}
+
+function determineWinner(room: Room) {
+  const sorted = [...room.players].sort((a, b) => b.score - a.score);
+  const top = sorted[0];
+  if (room.game) {
+    room.game.winnerId = top?.id;
+  }
+}
+
+export function addLogEntry(game: GameState, message: string) {
+  game.log.push(message);
+  if (game.log.length > 50) {
+    game.log.shift();
+  }
+}
+
+function randomLetter(): string {
+  return LETTERS[Math.floor(Math.random() * LETTERS.length)];
+}
+
+function normalizeLetter(letter: string): string {
+  const upper = (letter ?? "").trim().charAt(0).toUpperCase();
+  return LETTERS.includes(upper) ? upper : randomLetter();
+}
+
+function tileId(x: number, y: number): string {
+  return `${x}-${y}`;
+}
+
+function requireGame(room: Room): GameState | undefined {
+  return room.game;
+}

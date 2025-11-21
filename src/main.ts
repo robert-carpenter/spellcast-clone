@@ -1,5 +1,5 @@
 import "./style.css";
-import { SpellcastGame, InitialRoomState } from "./game/SpellcastGame";
+import { SpellcastGame, InitialRoomState, MultiplayerController } from "./game/SpellcastGame";
 import dictionaryRaw from "./game/dictionary.txt?raw";
 import {
   createRoom,
@@ -11,6 +11,7 @@ import {
   RoomDTO
 } from "./network/api";
 import { connectRoomSocket, RoomSocket } from "./network/socket";
+import { soundManager } from "./audio/SoundManager";
 
 type RoomStatus = RoomDTO["status"];
 
@@ -29,6 +30,7 @@ const dictionary = new Set(
 
 const BASE_PATH = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const HOME_PATH = BASE_PATH || "/";
+soundManager.enableAutoUnlock();
 
 const STORAGE_KEYS = {
   name: "spellcast:name",
@@ -48,6 +50,7 @@ const connectionNotice = createConnectionNotice();
 
 let game: SpellcastGame | null = null;
 let roomSocket: RoomSocket | null = null;
+let multiplayerBridge: MultiplayerController | null = null;
 let lobbyContext:
   | {
       roomId: string;
@@ -57,6 +60,9 @@ let lobbyContext:
   | null = null;
 let latestRoomSnapshot: RoomDTO | null = null;
 let hasEnteredGame = false;
+let knownPlayerIds = new Set<string>();
+let hasPlayerSnapshot = false;
+let lastRoomStatus: RoomStatus | null = null;
 
 landing.playOnlineBtn.addEventListener("click", () => {
   landing.showView("create");
@@ -203,6 +209,10 @@ async function leaveCurrentRoom() {
     disconnectRealtime();
     latestRoomSnapshot = null;
     lobbyContext = null;
+    multiplayerBridge = null;
+    knownPlayerIds = new Set<string>();
+    hasPlayerSnapshot = false;
+    lastRoomStatus = null;
     clearRoomSession();
     hasEnteredGame = false;
     setAppPath(HOME_PATH, true);
@@ -224,9 +234,18 @@ function connectRealtime(roomId: string, playerId: string) {
       landing.setMessage(message, "error");
       showConnectionNotice("Realtime connection error");
     },
+    onGameError: (message) => {
+      console.warn(message);
+      showConnectionNotice(message);
+      window.setTimeout(() => hideConnectionNotice(), 2500);
+    },
+    onSelection: (ownerId, tileIds) => {
+      handleSelectionBroadcast(ownerId, tileIds);
+    },
     onConnect: () => hideConnectionNotice(),
     onReconnect: () => hideConnectionNotice()
   });
+  multiplayerBridge = createMultiplayerBridge(roomSocket);
 }
 
 function disconnectRealtime() {
@@ -239,6 +258,19 @@ function disconnectRealtime() {
 }
 
 function handleRoomUpdate(room: RoomDTO) {
+  const previousPlayerIds = new Set(knownPlayerIds);
+  const freshPlayers = room.players.filter((player) => !previousPlayerIds.has(player.id));
+  if (hasPlayerSnapshot && freshPlayers.length) {
+    soundManager.play("player-join");
+  }
+  knownPlayerIds = new Set(room.players.map((player) => player.id));
+  hasPlayerSnapshot = true;
+
+  if (lastRoomStatus === "lobby" && room.status === "in-progress") {
+    soundManager.play("game-start");
+  }
+  lastRoomStatus = room.status;
+
   latestRoomSnapshot = room;
   if (lobbyContext) {
     lobbyContext.isHost = room.hostId === lobbyContext.playerId;
@@ -249,9 +281,28 @@ function handleRoomUpdate(room: RoomDTO) {
   if (room.status === "in-progress" && !hasEnteredGame) {
     enterGame(room);
   }
+  if (hasEnteredGame && room.status === "lobby") {
+    hasEnteredGame = false;
+    landing.showView("lobby");
+    landing.show();
+    landing.setMessage("Game complete. Waiting for the host to start again.", "info");
+    renderLobby(room);
+    if (game) {
+      game.dispose();
+      game = null;
+      app.innerHTML = "";
+    }
+  }
   if (hasEnteredGame) {
     updateGamePlayers(room);
+    if (room.game && game) {
+      game.applyGameSnapshot(room.game);
+    }
   }
+}
+
+function handleSelectionBroadcast(playerId: string, tileIds: string[]) {
+  game?.applyRemoteSelection(playerId, tileIds ?? []);
 }
 
 function renderLobby(room: RoomDTO) {
@@ -282,7 +333,10 @@ function enterGame(room: RoomDTO) {
   const initial = roomToInitialState(room, lobbyContext.playerId);
   landing.hide();
   hasEnteredGame = true;
-  startSpellcast(initial);
+  startSpellcast(initial, { multiplayer: multiplayerBridge ?? undefined });
+  if (room.game && game) {
+    game.applyGameSnapshot(room.game);
+  }
 }
 
 function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
@@ -295,7 +349,8 @@ function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
       score: player.score,
       gems: player.gems,
       isHost: player.id === room.hostId
-    }))
+    })),
+    game: room.game
   };
 }
 
@@ -303,16 +358,21 @@ function updateGamePlayers(room: RoomDTO) {
   const snapshot = room.players.map((player) => ({
     id: player.id,
     name: player.name,
-    isHost: player.id === room.hostId
+    isHost: player.id === room.hostId,
+    score: player.score,
+    gems: player.gems
   }));
   game?.syncRoomPlayers(snapshot);
 }
 
-function startSpellcast(roomState?: InitialRoomState) {
+function startSpellcast(roomState?: InitialRoomState, options?: { multiplayer?: MultiplayerController }) {
   if (game) {
     game.dispose();
   }
-  game = new SpellcastGame(app, dictionary, roomState);
+  game = new SpellcastGame(app, dictionary, roomState, options);
+  if (!roomState?.roomId) {
+    soundManager.play("game-start");
+  }
 }
 
 function saveName(name: string) {
@@ -378,6 +438,35 @@ function setAppPath(path: string, replace: boolean) {
   } else {
     window.history.pushState({}, "", normalized);
   }
+}
+
+function createMultiplayerBridge(socket: RoomSocket): MultiplayerController {
+  return {
+    submitWord(tileIds: string[]) {
+      console.log("[client][socket] emit game:submitWord", tileIds);
+      socket.emit("game:submitWord", { tileIds });
+    },
+    shuffle() {
+      console.log("[client][socket] emit game:shuffle");
+      socket.emit("game:shuffle");
+    },
+    requestSwapMode() {
+      console.log("[client][socket] emit game:swap:start");
+      socket.emit("game:swap:start");
+    },
+    applySwap(tileId: string, letter: string) {
+      console.log("[client][socket] emit game:swap:apply", tileId, letter);
+      socket.emit("game:swap:apply", { tileId, letter });
+    },
+    cancelSwap() {
+      console.log("[client][socket] emit game:swap:cancel");
+      socket.emit("game:swap:cancel");
+    },
+    updateSelection(tileIds: string[]) {
+      console.log("[client][socket] emit game:selection", tileIds);
+      socket.emit("game:selection", { tileIds });
+    }
+  };
 }
 
 type LandingView = "menu" | "create" | "join" | "lobby";
@@ -581,8 +670,14 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   });
   lobbyShareWrap.append(shareLabel, shareInput, shareCopy);
 
+  const lobbyDivider = document.createElement("hr");
+  lobbyDivider.className = "lobby-divider";
+
   const lobbyPlayersList = document.createElement("ul");
   lobbyPlayersList.className = "lobby-players";
+  const lobbyPlayersHeader = document.createElement("h3");
+  lobbyPlayersHeader.className = "lobby-players__heading";
+  lobbyPlayersHeader.textContent = "Players";
 
   const lobbyStatusText = document.createElement("p");
   lobbyStatusText.className = "lobby-status";
@@ -600,11 +695,26 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   lobbyView.append(
     lobbyHeader,
     lobbyShareWrap,
+    lobbyDivider,
+    lobbyPlayersHeader,
     lobbyPlayersList,
     lobbyStatusText,
     lobbyActions
   );
   registerView("lobby", lobbyView);
+
+  const hideOverlay = () => {
+    overlay.classList.add("landing-overlay--hidden");
+    visible = false;
+  };
+
+  const showOverlay = () => {
+    if (!overlay.isConnected) {
+      document.body.appendChild(overlay);
+    }
+    overlay.classList.remove("landing-overlay--hidden");
+    visible = true;
+  };
 
   const showView = (name: LandingView) => {
     activeView = name;
@@ -638,10 +748,11 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     root: overlay,
     showView,
     hide() {
-      if (overlay.isConnected) {
-        overlay.remove();
-        visible = false;
-      }
+      hideOverlay();
+    },
+    show(view?: LandingView) {
+      if (view) showView(view);
+      showOverlay();
     },
     setMessage,
     setBusy,

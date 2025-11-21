@@ -6,6 +6,7 @@ import {
   PlaneGeometry,
   Texture
 } from "three";
+import type { TileModel } from "../../shared/gameTypes";
 import { LETTER_VALUES } from "./constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -22,6 +23,7 @@ export interface SelectionResult {
 }
 
 export interface Tile {
+  id: string;
   mesh: TileMesh;
   letter: string;
   x: number;
@@ -35,8 +37,14 @@ export interface Tile {
 }
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const GEM_CHANCE = 0.25;
+const VOWELS = "AEIOU";
+const CONSONANTS = LETTERS.split("").filter((ch) => !VOWELS.includes(ch)).join("");
+const GEM_CHANCE = 0.5;
 const TRIPLE_CHANCE = 0.12;
+
+interface WordBoardOptions {
+  vowelRatio?: number;
+}
 
 export class WordBoard extends Group {
   public readonly cols: number;
@@ -44,6 +52,7 @@ export class WordBoard extends Group {
   public readonly tileSize = 1.3;
 
   private tiles: Tile[] = [];
+  private tileMap = new Map<string, Tile>();
   private hovered?: Tile;
   private selected = new Set<Tile>();
   private selectedOrder: Tile[] = [];
@@ -62,12 +71,16 @@ export class WordBoard extends Group {
   private multipliersEnabled = true;
   private swapMode = false;
   private wordMultiplierEnabled = true;
+  private vowelRatio = 0.4;
 
-  constructor(cols = 5, rows = 5) {
+  constructor(cols = 5, rows = 5, options: WordBoardOptions = {}) {
     super();
     this.cols = cols;
     this.rows = rows;
     this.name = "WordBoard";
+    if (typeof options.vowelRatio === "number") {
+      this.setVowelRatio(options.vowelRatio);
+    }
 
     this.connectionMaterial = new MeshBasicMaterial({
       color: "#39b9ff",
@@ -83,6 +96,48 @@ export class WordBoard extends Group {
 
   public allTiles(): Tile[] {
     return this.tiles;
+  }
+
+  public getTileById(id: string): Tile | undefined {
+    return this.tileMap.get(id);
+  }
+
+  public getTileId(tile: Tile): string {
+    return tile.id;
+  }
+
+  public applyExternalState(states: TileModel[]) {
+    const selectionSet = new Set(this.selected);
+    states.forEach((state) => {
+      const tile = this.tileMap.get(state.id);
+      if (!tile) return;
+      tile.letter = state.letter;
+      tile.hasGem = state.hasGem;
+      tile.multiplier = state.multiplier;
+      tile.wordMultiplier = state.wordMultiplier;
+      const nextState = selectionSet.has(tile)
+        ? "selected"
+        : tile === this.hovered
+          ? "hover"
+          : "base";
+      this.applyStyle(tile, nextState);
+      this.updateMultiplierBadge(tile);
+      this.updateWordMultiplierBadge(tile);
+      this.updateSwapTint(tile);
+    });
+    this.updateSelectionLine();
+  }
+
+  public setSelectionFromIds(tileIds: string[]) {
+    this.clearSelection();
+    tileIds.forEach((id) => {
+      const tile = this.tileMap.get(id);
+      if (!tile) return;
+      this.selected.add(tile);
+      this.selectedOrder.push(tile);
+      this.applyStyle(tile, "selected");
+    });
+    this.updateSelectionLine();
   }
 
   public setHovered(tile?: Tile) {
@@ -208,6 +263,11 @@ export class WordBoard extends Group {
     if (this.swapMode === active) return;
     this.swapMode = active;
     this.tiles.forEach((tile) => this.updateSwapTint(tile));
+  }
+
+  public setVowelRatio(ratio: number) {
+    if (Number.isNaN(ratio)) return;
+    this.vowelRatio = Math.min(0.9, Math.max(0.1, ratio));
   }
 
   public refreshTiles(tiles: Tile[], resetWordMultiplier = false) {
@@ -510,6 +570,7 @@ export class WordBoard extends Group {
       mesh.userData.tileCoordinates = { x: data.x, y: data.y };
 
       const tile: Tile = {
+        id: `${data.x}-${data.y}`,
         mesh,
         letter: data.letter,
         x: data.x,
@@ -520,7 +581,9 @@ export class WordBoard extends Group {
         wordMultiplier
       };
       mesh.userData.tile = tile;
+      mesh.userData.tileId = tile.id;
       this.tiles.push(tile);
+      this.tileMap.set(tile.id, tile);
       this.add(mesh);
       this.updateMultiplierBadge(tile);
       this.updateWordMultiplierBadge(tile);
@@ -531,7 +594,9 @@ export class WordBoard extends Group {
   }
 
   private randomLetter(): string {
-    return LETTERS[Math.floor(Math.random() * LETTERS.length)];
+    const useVowel = Math.random() < this.vowelRatio;
+    const pool = useVowel ? VOWELS : CONSONANTS;
+    return pool[Math.floor(Math.random() * pool.length)];
   }
 
   private normalizeLetter(letter: string): string {

@@ -1,3 +1,5 @@
+import type { GameSnapshot } from "../../shared/gameTypes";
+
 export interface RoomPlayerDTO {
   id: string;
   name: string;
@@ -11,6 +13,7 @@ export interface RoomDTO {
   players: RoomPlayerDTO[];
   hostId: string;
   status: "lobby" | "in-progress";
+  game?: GameSnapshot;
 }
 
 export interface CreateRoomResponse {
@@ -24,6 +27,7 @@ export interface JoinRoomResponse extends CreateRoomResponse {}
 const API_BASE = import.meta.env.VITE_SERVER_URL ?? "http://localhost:4000";
 
 async function request<T>(path: string, options: RequestInit): Promise<T> {
+  console.log("[client][api]", options?.method ?? "GET", path, options?.body ?? "");
   const res = await fetch(`${API_BASE}${path}`, {
     headers: {
       "Content-Type": "application/json"
@@ -32,8 +36,10 @@ async function request<T>(path: string, options: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    console.warn("[client][api] error", path, err);
     throw new Error(err.error ?? res.statusText);
   }
+  console.log("[client][api] success", path);
   return res.json();
 }
 
