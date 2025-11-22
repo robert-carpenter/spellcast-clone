@@ -11,6 +11,54 @@ const TOTAL_ROUNDS = 5;
 const LONG_WORD_THRESHOLD = 6;
 const LONG_WORD_BONUS = 10;
 
+function getActivePlayers(room: Room): Player[] {
+  return room.players.filter((player) => !player.isSpectator);
+}
+
+function hasActivePlayers(room: Room): boolean {
+  return room.players.some((player) => !player.isSpectator);
+}
+
+function findFirstActiveIndex(room: Room): number {
+  return room.players.findIndex((player) => !player.isSpectator);
+}
+
+function getCurrentTurnPlayer(room: Room): Player | undefined {
+  const game = room.game;
+  if (!game) return undefined;
+  if (!hasActivePlayers(room)) return undefined;
+  const players = room.players;
+  if (!players.length) return undefined;
+  if (
+    game.currentPlayerIndex >= players.length ||
+    players[game.currentPlayerIndex]?.isSpectator
+  ) {
+    const firstActive = findFirstActiveIndex(room);
+    if (firstActive === -1) return undefined;
+    game.currentPlayerIndex = firstActive;
+  }
+  return players[game.currentPlayerIndex];
+}
+
+function getNextActiveIndex(room: Room, currentIndex: number): {
+  index: number;
+  wrapped: boolean;
+} {
+  const players = room.players;
+  const total = players.length;
+  if (!total || !hasActivePlayers(room)) {
+    return { index: currentIndex, wrapped: false };
+  }
+  let idx = currentIndex;
+  do {
+    idx = (idx + 1) % total;
+    if (!players[idx].isSpectator) {
+      return { index: idx, wrapped: idx <= currentIndex };
+    }
+  } while (idx !== currentIndex);
+  return { index: currentIndex, wrapped: true };
+}
+
 export interface SubmitResult {
   success: boolean;
   error?: string;
@@ -51,7 +99,12 @@ export function startNewGame(room: Room) {
   room.players.forEach((player) => {
     player.score = 0;
     player.gems = 3;
+    player.isSpectator = false;
   });
+  const firstActive = findFirstActiveIndex(room);
+  if (firstActive >= 0 && room.game) {
+    room.game.currentPlayerIndex = firstActive;
+  }
 }
 
 export function submitWord(
@@ -68,8 +121,11 @@ export function submitWord(
   if (!tileIds.length) {
     return { success: false, error: "Select tiles to form a word." };
   }
-  const player = room.players[game.currentPlayerIndex];
-  if (!player || player.id !== playerId) {
+  const player = getCurrentTurnPlayer(room);
+  if (!player) {
+    return { success: false, error: "No active players available." };
+  }
+  if (player.id !== playerId) {
     return { success: false, error: "It is not your turn." };
   }
 
@@ -134,6 +190,7 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
   if (!game) return { success: false, error: "Game not started." };
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
+  if (player.isSpectator) return { success: false, error: "Spectators cannot use Shuffle." };
   if (player.gems < 1) return { success: false, error: "Need 1 gem to shuffle." };
   player.gems -= 1;
   const payload = game.tiles.map((tile) => ({
@@ -161,6 +218,7 @@ export function requestSwapMode(room: Room, playerId: string): ActionResult {
   if (!game) return { success: false, error: "Game not started." };
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
+  if (player.isSpectator) return { success: false, error: "Spectators cannot swap letters." };
   if (player.gems < 3) return { success: false, error: "Need 3 gems to swap a letter." };
   game.swapModePlayerId = playerId;
   return { success: true };
@@ -176,6 +234,9 @@ export function applySwap(
   if (!game) return { success: false, error: "Game not started." };
   const player = room.players.find((p) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
+  if (player.isSpectator) {
+    return { success: false, error: "Spectators cannot swap letters." };
+  }
   if (game.swapModePlayerId !== playerId) {
     return { success: false, error: "You are not swapping a letter." };
   }
@@ -306,10 +367,10 @@ function calculateWordScore(tiles: TileModel[], hasLongWordBonus: boolean): numb
 function advanceTurn(room: Room) {
   const game = requireGame(room);
   if (!game) return;
-  const playerCount = room.players.length;
-  if (!playerCount) return;
-  game.currentPlayerIndex = (game.currentPlayerIndex + 1) % playerCount;
-  if (game.currentPlayerIndex === 0) {
+  if (!hasActivePlayers(room)) return;
+  const { index, wrapped } = getNextActiveIndex(room, game.currentPlayerIndex);
+  game.currentPlayerIndex = index;
+  if (wrapped) {
     if (game.round < game.totalRounds) {
       game.round += 1;
       if (game.round > 1) {
@@ -335,7 +396,9 @@ function refreshAllTiles(game: GameState) {
 }
 
 function determineWinner(room: Room) {
-  const sorted = [...room.players].sort((a, b) => b.score - a.score);
+  const candidates = getActivePlayers(room);
+  const pool = candidates.length ? candidates : room.players;
+  const sorted = [...pool].sort((a, b) => b.score - a.score);
   const top = sorted[0];
   if (room.game) {
     room.game.winnerId = top?.id;

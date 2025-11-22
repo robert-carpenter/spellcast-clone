@@ -39,7 +39,7 @@ const socketLookup = new Map<string, { roomId: string; playerId: string }>();
 const gameResetTimers = new Map<string, NodeJS.Timeout>();
 
 const MAX_PLAYERS = 6;
-const DISCONNECT_GRACE_MS = 10_000;
+const DISCONNECT_GRACE_MS = 5 * 60 * 1000; // allow mobile browsers to background for up to 5 minutes
 const NEW_GAME_DELAY_MS = 5000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,7 +68,9 @@ app.post("/api/rooms", (req: Request, res: Response) => {
     isHost: true,
     score: 0,
     gems: 3,
-    joinedAt: Date.now()
+    joinedAt: Date.now(),
+    connected: false,
+    isSpectator: false
   };
 
   const room: Room = {
@@ -103,9 +105,6 @@ app.post("/api/rooms/:roomId/join", (req: Request, res: Response) => {
   if (!room) {
     return res.status(404).json({ error: "Room not found" });
   }
-  if (room.status !== "lobby") {
-    return res.status(400).json({ error: "Game already in progress" });
-  }
   if (room.players.length >= MAX_PLAYERS) {
     return res.status(400).json({ error: "Room is full" });
   }
@@ -120,13 +119,16 @@ app.post("/api/rooms/:roomId/join", (req: Request, res: Response) => {
     return res.status(400).json({ error: "Player name cannot be empty" });
   }
 
+  const joiningMidGame = room.status === "in-progress";
   const player: Player = {
     id: randomUUID(),
     name: sanitized,
     isHost: false,
     score: 0,
     gems: 3,
-    joinedAt: Date.now()
+    joinedAt: Date.now(),
+    connected: false,
+    isSpectator: joiningMidGame
   };
 
   room.players.push(player);
@@ -155,6 +157,10 @@ app.post("/api/rooms/:roomId/start", (req: Request, res: Response) => {
   if (room.hostId !== playerId) {
     return res.status(403).json({ error: "Only the host can start the game" });
   }
+  const activePlayers = room.players.filter((player) => !player.isSpectator);
+  if (!activePlayers.length) {
+    return res.status(400).json({ error: "Need at least one active player to start" });
+  }
   room.status = "in-progress";
   clearGameReset(roomId);
   startNewGame(room);
@@ -169,6 +175,16 @@ app.delete("/api/rooms/:roomId/players/:playerId", (req: Request, res: Response)
   const room = rooms.get(roomId);
   if (!room) {
     return res.status(404).json({ error: "Room not found" });
+  }
+  const requesterId =
+    typeof req.body?.requesterId === "string" ? (req.body.requesterId as string) : undefined;
+  if (!requesterId) {
+    return res.status(400).json({ error: "requesterId is required" });
+  }
+  const isSelfRemoval = requesterId === playerId;
+  const isHostRequest = requesterId === room.hostId;
+  if (!isSelfRemoval && !isHostRequest) {
+    return res.status(403).json({ error: "Only the host can remove other players" });
   }
 
   const removed = forceRemovePlayer(roomId, playerId);
@@ -294,6 +310,8 @@ io.on("connection", (socket) => {
     log("game:selection", playerId, payload);
     const currentRoom = rooms.get(roomCode);
     if (!currentRoom) return;
+    const sender = currentRoom.players.find((player) => player.id === playerId);
+    if (sender?.isSpectator) return;
     const tileIds = Array.isArray(payload?.tileIds)
       ? payload.tileIds.filter((id): id is string => typeof id === "string")
       : [];
@@ -346,8 +364,13 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
   }
 
   if (room.hostId === playerId) {
-    room.hostId = room.players[0].id;
-    room.players[0].isHost = true;
+    const nextHost = room.players.find((player) => !player.isSpectator) ?? room.players[0];
+    if (nextHost) {
+      room.hostId = nextHost.id;
+      room.players.forEach((player) => {
+        player.isHost = player.id === room.hostId;
+      });
+    }
   }
 
   if (room.game) {
@@ -357,9 +380,8 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
     if (room.players.length === 0) {
       room.status = "lobby";
       room.game = undefined;
-    } else if (room.game.currentPlayerIndex >= room.players.length) {
-      room.game.currentPlayerIndex = 0;
     }
+    normalizeCurrentPlayer(room);
   }
 
   broadcastRoom(roomId);
@@ -396,6 +418,15 @@ function registerPresence(playerId: string, roomId: string, socket: Socket) {
     });
   }
   socketLookup.set(socket.id, { roomId, playerId });
+
+  const room = rooms.get(roomId);
+  if (room) {
+    const player = room.players.find((p) => p.id === playerId);
+    if (player && !player.connected) {
+      player.connected = true;
+      broadcastRoom(roomId);
+    }
+  }
 }
 
 function handleSocketDisconnect(socketId: string) {
@@ -406,6 +437,14 @@ function handleSocketDisconnect(socketId: string) {
   if (!presence) return;
   presence.sockets.delete(socketId);
   if (presence.sockets.size === 0) {
+    const room = rooms.get(ctx.roomId);
+    if (room) {
+      const player = room.players.find((p) => p.id === ctx.playerId);
+      if (player && player.connected) {
+        player.connected = false;
+        broadcastRoom(ctx.roomId);
+      }
+    }
     presence.timeout = setTimeout(() => {
       playerPresence.delete(ctx.playerId);
       removePlayerFromRoom(ctx.roomId, ctx.playerId);
@@ -421,6 +460,9 @@ function scheduleGameReset(roomId: string) {
     if (!room) return;
     room.status = "lobby";
     room.game = undefined;
+    room.players.forEach((player) => {
+      player.isSpectator = false;
+    });
     broadcastRoom(roomId);
   }, NEW_GAME_DELAY_MS);
   gameResetTimers.set(roomId, timer);
@@ -437,8 +479,18 @@ function clearGameReset(roomId: string) {
 function ensurePlayerTurn(room: Room, playerId: string): boolean {
   const game = room.game;
   if (!game || !room.players.length) return false;
-  const player = room.players[game.currentPlayerIndex];
-  return player?.id === playerId;
+  const hasActive = room.players.some((player) => !player.isSpectator);
+  if (!hasActive) return false;
+  if (
+    game.currentPlayerIndex >= room.players.length ||
+    room.players[game.currentPlayerIndex]?.isSpectator
+  ) {
+    const firstActive = room.players.findIndex((player) => !player.isSpectator);
+    if (firstActive === -1) return false;
+    game.currentPlayerIndex = firstActive;
+  }
+  const current = room.players[game.currentPlayerIndex];
+  return current?.id === playerId;
 }
 
 function loadDictionary(): Set<string> {
@@ -454,5 +506,20 @@ function loadDictionary(): Set<string> {
   } catch (error) {
     console.error("Failed to load dictionary file.", error);
     return new Set();
+  }
+}
+
+function normalizeCurrentPlayer(room: Room) {
+  if (!room.game) return;
+  if (!room.players.length) {
+    room.game.currentPlayerIndex = 0;
+    return;
+  }
+  if (
+    room.game.currentPlayerIndex >= room.players.length ||
+    room.players[room.game.currentPlayerIndex]?.isSpectator
+  ) {
+    const firstActive = room.players.findIndex((player) => !player.isSpectator);
+    room.game.currentPlayerIndex = firstActive === -1 ? 0 : firstActive;
   }
 }

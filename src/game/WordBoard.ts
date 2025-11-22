@@ -9,10 +9,9 @@ import {
 import type { TileModel } from "../../shared/gameTypes";
 import {
   GEM_CHANCE,
+  LETTER_COUNTS,
   LETTERS,
   LETTER_VALUES,
-  LETTER_WEIGHT_TOTAL,
-  LETTER_WEIGHTS,
   TRIPLE_CHANCE
 } from "./../../shared/constants";
 
@@ -41,12 +40,13 @@ export interface Tile {
   badge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
   wordMultiplier: WordMultiplier;
   wordBadge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
+  bagTracked: boolean;
 }
 
 export class WordBoard extends Group {
   public readonly cols: number;
   public readonly rows: number;
-  public readonly tileSize = 1.3;
+  public readonly tileSize = 1.3 * 1.1;
 
   private tiles: Tile[] = [];
   private tileMap = new Map<string, Tile>();
@@ -68,6 +68,8 @@ export class WordBoard extends Group {
   private multipliersEnabled = true;
   private swapMode = false;
   private wordMultiplierEnabled = true;
+  private letterBag = new Map<string, number>();
+  private bagTotal = 0;
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -119,6 +121,7 @@ export class WordBoard extends Group {
       this.updateSwapTint(tile);
     });
     this.updateSelectionLine();
+    this.rebuildLetterBagFromBoard();
   }
 
   public setSelectionFromIds(tileIds: string[]) {
@@ -220,7 +223,8 @@ export class WordBoard extends Group {
       letter: tile.letter,
       hasGem: tile.hasGem,
       multiplier: tile.multiplier,
-      wordMultiplier: tile.wordMultiplier
+      wordMultiplier: tile.wordMultiplier,
+      bagTracked: tile.bagTracked
     }));
 
     for (let i = payload.length - 1; i > 0; i -= 1) {
@@ -234,6 +238,7 @@ export class WordBoard extends Group {
       tile.hasGem = data.hasGem;
       tile.multiplier = data.multiplier;
       tile.wordMultiplier = data.wordMultiplier;
+      tile.bagTracked = data.bagTracked;
       this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
       this.updateMultiplierBadge(tile);
       this.updateWordMultiplierBadge(tile);
@@ -242,13 +247,16 @@ export class WordBoard extends Group {
   }
 
   public rerollLetter(tile: Tile) {
-    tile.letter = this.normalizeLetter(this.randomLetter());
+    this.releaseTileLetter(tile);
+    this.assignLetterFromBag(tile);
     this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
     this.updateSelectionLine();
   }
 
   public swapTileLetter(tile: Tile, letter: string) {
+    this.releaseTileLetter(tile);
     tile.letter = this.normalizeLetter(letter);
+    tile.bagTracked = false;
     this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
   }
 
@@ -266,7 +274,8 @@ export class WordBoard extends Group {
       if (tile.multiplier !== "none") consumedLetterMultiplier = true;
       if (tile.wordMultiplier === "doubleWord") consumedWordMultiplier = true;
 
-      tile.letter = this.normalizeLetter(this.randomLetter());
+      this.releaseTileLetter(tile);
+      this.assignLetterFromBag(tile);
       tile.hasGem = Math.random() < GEM_CHANCE;
       tile.multiplier = "none";
       if (resetWordMultiplier || tile.wordMultiplier === "doubleWord") {
@@ -525,7 +534,85 @@ export class WordBoard extends Group {
     }
   }
 
+  private resetLetterBag() {
+    this.letterBag.clear();
+    this.bagTotal = 0;
+    Object.entries(LETTER_COUNTS).forEach(([letter, count]) => {
+      const upper = letter.toUpperCase();
+      const amount = Math.max(0, count ?? 0);
+      this.letterBag.set(upper, amount);
+      this.bagTotal += amount;
+    });
+  }
+
+  private rebuildLetterBagFromBoard() {
+    this.resetLetterBag();
+    this.tiles.forEach((tile) => {
+      tile.bagTracked = this.consumeLetterFromBag(tile.letter);
+    });
+  }
+
+  private consumeLetterFromBag(letter: string): boolean {
+    const key = this.normalizeLetterKey(letter);
+    const current = this.letterBag.get(key);
+    if (typeof current !== "number" || current <= 0) {
+      return false;
+    }
+    this.letterBag.set(key, current - 1);
+    this.bagTotal -= 1;
+    return true;
+  }
+
+  private returnLetterToBag(letter: string) {
+    const key = this.normalizeLetterKey(letter);
+    if (!key) return;
+    const current = this.letterBag.get(key) ?? 0;
+    this.letterBag.set(key, current + 1);
+    this.bagTotal += 1;
+  }
+
+  private drawLetterFromBag(): { letter: string; fromBag: boolean } {
+    if (this.bagTotal <= 0) {
+      return {
+        letter: LETTERS[Math.floor(Math.random() * LETTERS.length)],
+        fromBag: false
+      };
+    }
+    const target = Math.random() * this.bagTotal;
+    let cumulative = 0;
+    for (const [letter, count] of this.letterBag) {
+      if (count <= 0) continue;
+      cumulative += count;
+      if (target < cumulative) {
+        this.consumeLetterFromBag(letter);
+        return { letter, fromBag: true };
+      }
+    }
+    return {
+      letter: LETTERS[Math.floor(Math.random() * LETTERS.length)],
+      fromBag: false
+    };
+  }
+
+  private normalizeLetterKey(letter: string): string {
+    return (letter ?? "").trim().charAt(0).toUpperCase();
+  }
+
+  private assignLetterFromBag(tile: Tile) {
+    const draw = this.drawLetterFromBag();
+    const letter = this.normalizeLetter(draw.letter);
+    tile.letter = letter;
+    tile.bagTracked = draw.fromBag;
+  }
+
+  private releaseTileLetter(tile: Tile) {
+    if (!tile.bagTracked) return;
+    this.returnLetterToBag(tile.letter);
+    tile.bagTracked = false;
+  }
+
   private buildTiles() {
+    this.resetLetterBag();
     const offsetX = (this.cols - 1) * (this.tileSize / 2);
     const offsetY = (this.rows - 1) * (this.tileSize / 2);
 
@@ -534,9 +621,10 @@ export class WordBoard extends Group {
 
     for (let y = 0; y < this.rows; y += 1) {
       for (let x = 0; x < this.cols; x += 1) {
-        const letter = this.normalizeLetter(this.randomLetter());
+        const draw = this.drawLetterFromBag();
+        const letter = this.normalizeLetter(draw.letter);
         const hasGem = Math.random() < GEM_CHANCE;
-        tilesData.push({ x, y, letter, hasGem });
+        tilesData.push({ x, y, letter, hasGem, bagTracked: draw.fromBag });
       }
     }
 
@@ -566,7 +654,8 @@ export class WordBoard extends Group {
         state: "base",
         hasGem: data.hasGem,
         multiplier,
-        wordMultiplier
+        wordMultiplier,
+        bagTracked: Boolean(data.bagTracked)
       };
       mesh.userData.tile = tile;
       mesh.userData.tileId = tile.id;
@@ -579,21 +668,6 @@ export class WordBoard extends Group {
 
     this.ensureMultiplier();
     this.ensureWordMultiplier();
-  }
-
-  private randomLetter(): string {
-    if (!LETTER_WEIGHT_TOTAL || !LETTER_WEIGHTS.length) {
-      return LETTERS[Math.floor(Math.random() * LETTERS.length)];
-    }
-
-    const target = Math.random() * LETTER_WEIGHT_TOTAL;
-    for (const entry of LETTER_WEIGHTS) {
-      if (target <= entry.cumulative) {
-        return entry.letter;
-      }
-    }
-
-    return LETTERS[Math.floor(Math.random() * LETTERS.length)];
   }
 
   private normalizeLetter(letter: string): string {
@@ -626,6 +700,27 @@ export class WordBoard extends Group {
     const ctx = canvas.getContext("2d");
 
     if (!ctx) throw new Error("Failed to get 2d context");
+    const drawRoundedRect = (
+      context: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      width: number,
+      height: number,
+      radius: number
+    ) => {
+      const r = Math.max(0, Math.min(radius, Math.min(width, height) / 2));
+      context.beginPath();
+      context.moveTo(x + r, y);
+      context.lineTo(x + width - r, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + r);
+      context.lineTo(x + width, y + height - r);
+      context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      context.lineTo(x + r, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - r);
+      context.lineTo(x, y + r);
+      context.quadraticCurveTo(x, y, x + r, y);
+      context.closePath();
+    };
 
     const palette: Record<TileState, { bg: string; text: string; shadow: string }> = {
       base: { bg: "#f8f9fb", text: "#111111", shadow: "rgba(0,0,0,0.25)" },
@@ -636,7 +731,8 @@ export class WordBoard extends Group {
     const colors = palette[state];
 
     ctx.fillStyle = colors.bg;
-    ctx.fillRect(0, 0, size, size);
+    drawRoundedRect(ctx, 8, 8, size - 16, size - 16, 16);
+    ctx.fill();
 
     ctx.fillStyle = colors.text;
     ctx.font = "bold 140px Play, 'Segoe UI', sans-serif";

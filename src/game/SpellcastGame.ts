@@ -17,6 +17,8 @@ export interface Player {
   score: number;
   gems: number;
   isHost: boolean;
+  connected: boolean;
+  isSpectator: boolean;
 }
 
 export interface InitialRoomState {
@@ -68,6 +70,7 @@ export class SpellcastGame {
   private roomId?: string;
   private playerId?: string;
   private isMultiplayer = false;
+  private isSpectator = false;
   private multiplayer: MultiplayerController | null = null;
   private currentPlayerIndex = 0;
   private serverCompletionHandled = false;
@@ -93,15 +96,38 @@ export class SpellcastGame {
         name: p.name,
         score: p.score ?? 0,
         gems: p.gems ?? 3,
-        isHost: p.isHost ?? false
+        isHost: p.isHost ?? false,
+        connected: p.connected ?? true,
+        isSpectator: p.isSpectator ?? false
       }));
       this.roomId = roomState.roomId;
       this.playerId = roomState.playerId;
     } else {
       this.players = [
-        { id: "local-1", name: "Player 1", score: 0, gems: 3, isHost: true },
-        { id: "local-2", name: "Player 2", score: 0, gems: 3, isHost: false }
+        {
+          id: "local-1",
+          name: "Player 1",
+          score: 0,
+          gems: 3,
+          isHost: true,
+          connected: true,
+          isSpectator: false
+        },
+        {
+          id: "local-2",
+          name: "Player 2",
+          score: 0,
+          gems: 3,
+          isHost: false,
+          connected: true,
+          isSpectator: false
+        }
       ];
+    }
+    const myId = roomState?.playerId;
+    if (myId) {
+      const me = this.players.find((player) => player.id === myId);
+      this.isSpectator = Boolean(me?.isSpectator);
     }
     this.lastActivePlayerId = this.players[this.currentPlayerIndex]?.id;
     this.container.innerHTML = "";
@@ -138,7 +164,7 @@ export class SpellcastGame {
     this.camera.lookAt(0, 0, 0);
 
     this.board = new WordBoard(5, 5);
-    this.board.scale.setScalar(1.75); // upscale grid by 75%
+    this.board.scale.setScalar(1.75 * 1.1); // 10% bump on top of previous 1.75 scale
     this.scene.add(this.board);
     this.updateBoardPlacement();
     if (roomState?.game) {
@@ -148,14 +174,14 @@ export class SpellcastGame {
       this.board.setWordMultiplierEnabled(this.round > 1);
     }
 
-    const hud = this.createHud();
-    this.controlsWrap = hud.controls;
-    this.submitButton = hud.submitBtn;
-    this.resetButton = hud.resetBtn;
     const powerUi = this.createPowerPanel();
     this.powerPanel = powerUi.panel;
     this.shuffleButton = powerUi.shuffleBtn;
     this.rerollButton = powerUi.rerollBtn;
+    const hud = this.createHud();
+    this.controlsWrap = hud.controls;
+    this.submitButton = hud.submitBtn;
+    this.resetButton = hud.resetBtn;
 
     this.playersListEl = this.createSidebar();
     this.renderPlayers();
@@ -194,23 +220,27 @@ export class SpellcastGame {
   }
 
   private createHud() {
-    const hud = document.createElement("div");
-    hud.className = "hud";
-
     const controls = document.createElement("div");
     controls.className = "hud__controls";
 
     const submitBtn = document.createElement("button");
-    submitBtn.textContent = "Submit Word";
     submitBtn.className = "hud__btn primary";
+    const submitIcon = document.createElement("i");
+    submitIcon.className = "fa-solid fa-share hud__btn-icon";
+    const submitLabel = document.createElement("span");
+    submitLabel.textContent = "Submit Word";
+    submitBtn.append(submitIcon, submitLabel);
 
     const resetBtn = document.createElement("button");
-    resetBtn.textContent = "Reset Word";
     resetBtn.className = "hud__btn";
+    const resetIcon = document.createElement("i");
+    resetIcon.className = "fa-solid fa-circle-xmark hud__btn-icon";
+    const resetLabel = document.createElement("span");
+    resetLabel.textContent = "Reset Word";
+    resetBtn.append(resetIcon, resetLabel);
 
     controls.append(submitBtn, resetBtn);
-    hud.append(controls);
-    this.boardViewport.appendChild(hud);
+    this.boardViewport.appendChild(controls);
 
     return { controls, submitBtn, resetBtn };
   }
@@ -227,12 +257,26 @@ export class SpellcastGame {
     controls.className = "power-panel__controls";
 
     const shuffleBtn = document.createElement("button");
-    shuffleBtn.textContent = "Shuffle (1 gem)";
     shuffleBtn.className = "power-panel__btn";
+    const shuffleIcon = document.createElement("i");
+    shuffleIcon.className = "fa-solid fa-shuffle power-panel__btn-icon";
+    const shuffleLabel = document.createElement("span");
+    shuffleLabel.textContent = "Shuffle";
+    const shuffleGem = document.createElement("span");
+    shuffleGem.className = "pill pill--gem power-panel__pill";
+    shuffleGem.textContent = "1";
+    shuffleBtn.append(shuffleIcon, shuffleLabel, shuffleGem);
 
     const rerollBtn = document.createElement("button");
-    rerollBtn.textContent = "Swap Letter (3 gems)";
     rerollBtn.className = "power-panel__btn";
+    const rerollIcon = document.createElement("i");
+    rerollIcon.className = "fa-solid fa-arrow-right-arrow-left power-panel__btn-icon";
+    const rerollLabel = document.createElement("span");
+    rerollLabel.textContent = "Swap Letter";
+    const rerollGem = document.createElement("span");
+    rerollGem.className = "pill pill--gem power-panel__pill";
+    rerollGem.textContent = "3";
+    rerollBtn.append(rerollIcon, rerollLabel, rerollGem);
 
     controls.append(shuffleBtn, rerollBtn);
     panel.append(title, controls);
@@ -257,15 +301,6 @@ export class SpellcastGame {
     heading.innerHTML = `Players <span class="round-indicator">Round ${this.round} of ${this.totalRounds}</span>`;
     this.roundLabel = heading.querySelector(".round-indicator")!;
 
-    const logButton = document.createElement("button");
-    logButton.className = "activity-log-btn";
-    logButton.setAttribute("aria-label", "View activity log");
-    const icon = document.createElement("i");
-    icon.className = "fa-solid fa-book";
-    logButton.appendChild(icon);
-    logButton.addEventListener("click", () => this.showActivityLog());
-    heading.appendChild(logButton);
-
     const list = document.createElement("div");
     list.className = "players";
 
@@ -283,11 +318,37 @@ export class SpellcastGame {
     removeBtn.addEventListener("click", this.onRemovePlayer);
 
     controls.append(removeBtn, addBtn);
+    const actionTray = document.createElement("div");
+    actionTray.className = "player-action-tray";
+
+    const logButton = document.createElement("button");
+    logButton.className = "player-action-btn";
+    logButton.setAttribute("aria-label", "View activity log");
+    const logIcon = document.createElement("i");
+    logIcon.className = "fa-solid fa-book";
+    logButton.appendChild(logIcon);
+    logButton.addEventListener("click", () => this.showActivityLog());
+
+    const exitButton = document.createElement("button");
+    exitButton.className = "player-action-btn player-action-btn--exit";
+    exitButton.setAttribute("aria-label", "Exit game");
+    const exitIcon = document.createElement("i");
+    exitIcon.className = "fa-solid fa-door-open";
+    exitButton.appendChild(exitIcon);
+    exitButton.addEventListener("click", async () => {
+      const confirmed = await this.showConfirmation("Exit the game and return to the menu?");
+      if (!confirmed) return;
+      this.dispose();
+      window.dispatchEvent(new CustomEvent("spellcast:exit"));
+    });
+
+    actionTray.append(logButton, exitButton);
+
     if (this.isMultiplayer) {
       controls.style.display = "none";
-      wrap.append(heading, list);
+      wrap.append(heading, list, actionTray);
     } else {
-      wrap.append(heading, list, controls);
+      wrap.append(heading, list, controls, actionTray);
     }
     this.sidebar.appendChild(wrap);
     return list;
@@ -300,15 +361,41 @@ export class SpellcastGame {
       item.className = "player";
       if (index === this.currentPlayerIndex) item.classList.add("player--active");
 
+      const header = document.createElement("div");
+      header.className = "player__nameRow";
+
+      const status = document.createElement("span");
+      status.className = `status-indicator ${
+        player.connected ? "status-indicator--online" : "status-indicator--offline"
+      }`;
+      status.title = player.connected ? "Connected" : "Reconnecting…";
+
       const name = document.createElement("div");
       name.className = "player__name";
       name.textContent = player.name;
+
+      header.append(status, name);
+      if (index === this.currentPlayerIndex) {
+        const turnBadge = document.createElement("span");
+        turnBadge.className = "player__turnBadge";
+        turnBadge.title = "Current turn";
+        const hourglass = document.createElement("i");
+        hourglass.className = "fa-solid fa-hourglass-start";
+        turnBadge.append(hourglass);
+        header.append(turnBadge);
+      }
+      if (player.isSpectator) {
+        const spectateTag = document.createElement("span");
+        spectateTag.className = "pill pill--spectator";
+        spectateTag.textContent = "Spectator";
+        header.append(spectateTag);
+      }
 
       const meta = document.createElement("div");
       meta.className = "player__meta";
       meta.innerHTML = `<span class="pill pill--score">${player.score} pts</span><span class="pill pill--gem">${player.gems} gems</span>`;
 
-      item.append(name, meta);
+      item.append(header, meta);
       this.playersListEl.appendChild(item);
     });
   }
@@ -322,7 +409,9 @@ export class SpellcastGame {
       name: `Player ${this.players.length + 1}`,
       score: 0,
       gems: 3,
-      isHost: false
+      isHost: false,
+      connected: true,
+      isSpectator: false
     });
     this.renderPlayers();
   };
@@ -345,6 +434,7 @@ export class SpellcastGame {
 
   private onPointerMove = (event: PointerEvent) => {
     if (this.isModalOpen) return;
+    if (this.isSpectator) return;
     if (this.isMultiplayer && !this.isMyTurn()) {
       this.board.setHovered(undefined);
       return;
@@ -356,11 +446,13 @@ export class SpellcastGame {
   };
 
   private onPointerDown = (event: PointerEvent) => {
+    if (this.isSpectator) return;
     this.updatePointerFromEvent(event);
   };
 
   private onClick = () => {
     if (this.isModalOpen) return;
+    if (this.isSpectator) return;
     if (this.isMultiplayer && !this.isMyTurn()) return;
     const tile = this.intersectTile();
     if (!tile) return;
@@ -386,6 +478,7 @@ export class SpellcastGame {
   };
 
   private onSubmitWord = () => {
+    if (this.isSpectator) return;
     const selection = this.board.getSelection();
     if (!selection.length) {
       console.warn("Select tiles to form a word.");
@@ -437,6 +530,7 @@ export class SpellcastGame {
   };
 
   private onShuffle = async () => {
+    if (this.isSpectator) return;
     if (this.isMultiplayer && !this.isMyTurn()) {
       console.warn("Wait for your turn to use Shuffle.");
       return;
@@ -474,12 +568,14 @@ export class SpellcastGame {
   };
 
   private onResetWord = () => {
+    if (this.isSpectator) return;
     this.board.clearSelection();
     this.updateWord([]);
     this.broadcastSelection([]);
   };
 
   private onRerollLetter = () => {
+    if (this.isSpectator) return;
     if (this.swapMode) {
       if (this.isMultiplayer && this.multiplayer) {
         this.multiplayer.cancelSwap();
@@ -653,7 +749,7 @@ export class SpellcastGame {
     this.wordBox.style.left = `${boardLeftPx}px`;
     this.wordBox.style.top = `${topPx}px`;
     if (this.controlsWrap) {
-      this.controlsWrap.style.width = `${boardWidthPx}px`;
+      this.controlsWrap.style.width = `200px`;
       this.controlsWrap.style.marginLeft = `8px`;
     }
   }
@@ -738,6 +834,7 @@ export class SpellcastGame {
   }
 
   private handleSwapSelection = async (tile: Tile) => {
+    if (this.isSpectator) return;
     const player = this.players[this.currentPlayerIndex];
     if (this.isMultiplayer) {
       if (!this.multiplayer) return;
@@ -884,7 +981,15 @@ export class SpellcastGame {
   }
 
   public syncRoomPlayers(
-    snapshot: Array<{ id: string; name: string; isHost: boolean; score?: number; gems?: number }>
+    snapshot: Array<{
+      id: string;
+      name: string;
+      isHost: boolean;
+      score?: number;
+      gems?: number;
+      connected?: boolean;
+      isSpectator?: boolean;
+    }>
   ) {
     if (!this.roomId) return;
     const lookup = new Map(this.players.map((player) => [player.id, player]));
@@ -894,6 +999,8 @@ export class SpellcastGame {
       if (existing) {
         existing.name = incoming.name;
         existing.isHost = incoming.isHost;
+        existing.connected = incoming.connected ?? existing.connected;
+        existing.isSpectator = incoming.isSpectator ?? existing.isSpectator;
         if (typeof incoming.score === "number") existing.score = incoming.score;
         if (typeof incoming.gems === "number") existing.gems = incoming.gems;
         next.push(existing);
@@ -901,13 +1008,23 @@ export class SpellcastGame {
         next.push({
           id: incoming.id,
           name: incoming.name,
-          score: 0,
-          gems: 3,
-          isHost: incoming.isHost
+          score: incoming.score ?? 0,
+          gems: incoming.gems ?? 3,
+          isHost: incoming.isHost,
+          connected: incoming.connected ?? false,
+          isSpectator: incoming.isSpectator ?? false
         });
       }
     });
     this.players = next;
+    if (this.playerId) {
+      const me = this.players.find((player) => player.id === this.playerId);
+      const nextSpectator = Boolean(me?.isSpectator);
+      if (nextSpectator !== this.isSpectator) {
+        this.isSpectator = nextSpectator;
+        this.updateTurnUi();
+      }
+    }
     if (this.players.length === 0) {
       this.currentPlayerIndex = 0;
     } else if (this.currentPlayerIndex >= this.players.length) {
@@ -937,6 +1054,19 @@ export class SpellcastGame {
   }
 
   private updateTurnUi() {
+    if (this.isSpectator) {
+      this.submitButton.disabled = true;
+      this.resetButton.disabled = true;
+      this.shuffleButton.disabled = true;
+      this.rerollButton.disabled = true;
+      if (this.controlsWrap) {
+        this.controlsWrap.style.display = "none";
+      }
+      if (this.powerPanel) {
+        this.powerPanel.style.display = "none";
+      }
+      return;
+    }
     if (!this.isMultiplayer) return;
     const isMyTurn = this.isMyTurn();
     if (this.wasMyTurn !== isMyTurn && isMyTurn) {
@@ -958,6 +1088,7 @@ export class SpellcastGame {
   }
 
   private isMyTurn(): boolean {
+    if (this.isSpectator) return false;
     if (!this.isMultiplayer || !this.playerId) return false;
     const current = this.players[this.currentPlayerIndex];
     return current?.id === this.playerId;

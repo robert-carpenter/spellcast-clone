@@ -6,6 +6,8 @@ export interface RoomPlayerDTO {
   isHost: boolean;
   score: number;
   gems: number;
+  isSpectator: boolean;
+  connected: boolean;
 }
 
 export interface RoomDTO {
@@ -70,8 +72,9 @@ export function startRoom(roomId: string, playerId: string): Promise<{ room: Roo
   });
 }
 
-export function leaveRoom(roomId: string, playerId: string): Promise<void> {
+export function leaveRoom(roomId: string, playerId: string, requesterId?: string): Promise<void> {
   return request(`/api/rooms/${encodeURIComponent(roomId)}/players/${encodeURIComponent(playerId)}`, {
-    method: "DELETE"
+    method: "DELETE",
+    body: JSON.stringify({ requesterId: requesterId ?? playerId })
   });
 }

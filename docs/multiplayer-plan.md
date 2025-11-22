@@ -22,10 +22,10 @@
 2. ✅ Rounds, multipliers, and activity logs are synchronized across clients; long-word bonuses and gem collection are calculated on the server, and completed games auto-reset after a 5s countdown with the winner announced to everyone.
 3. ✅ Host-only controls remain enforced (start/reset), and swap/shuffle costs plus turn order restrictions are validated centrally to prevent cheating.
 
-### Phase 5 – UX Enhancements
-1. Connection status indicators, room capacity feedback, richer error handling.
-2. Persist and display the activity log from the server (now partially available).
-3. Support spectator/observer mode (optional).
+### Phase 5 – UX Enhancements _(completed)_
+1. ✅ Connection status indicators, room capacity feedback, richer error handling (connection presence badges shipped).
+2. ✅ Persist and display the activity log coming from the authoritative server snapshot so late joiners read the full history.
+3. ✅ Allow mid-game joins as spectators (auto-disable controls, sync presence) so friends can watch live matches and participate once a new game starts.
 
 ### Phase 6 – Deployment & Monitoring
 1. Choose hosting (Render/Heroku/Vercel + WebSocket support).

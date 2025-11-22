@@ -6,6 +6,7 @@ import {
   joinRoom,
   startRoom,
   leaveRoom,
+  getRoom,
   CreateRoomResponse,
   JoinRoomResponse,
   RoomDTO
@@ -40,12 +41,19 @@ const STORAGE_KEYS = {
 } as const;
 
 const existingRoomFromPath = detectRoomIdFromLocation();
+let kickHandler: ((playerId: string) => void) | null = null;
 const landing = createLandingOverlay({
   initialName: loadStoredName(),
   initialRoom: existingRoomFromPath ?? ""
 });
+landing.setKickHandler((playerId) => {
+  handleKickPlayer(playerId).catch((err) => console.error(err));
+});
 
-landing.showView(existingRoomFromPath ? "join" : "menu");
+const storedSession = loadStoredSession();
+if (storedSession) {
+  resumeStoredSession(storedSession).catch((err) => console.warn("Resume failed", err));
+}
 
 const connectionNotice = createConnectionNotice();
 
@@ -75,7 +83,7 @@ landing.playOfflineBtn.addEventListener("click", () => {
   if (name) saveName(name);
   clearRoomSession();
   disconnectRealtime();
-  setAppPath(HOME_PATH, true);
+  setAppPath(buildOfflinePath(), true);
   landing.hide();
   startSpellcast();
 });
@@ -143,10 +151,18 @@ landing.lobbyStartBtn.addEventListener("click", () => {
     .finally(() => landing.setLobbyStarting(false));
 });
 
-if (existingRoomFromPath) {
+const isOfflineRoute = getRelativePath().toLowerCase() === "/offline";
+if (isOfflineRoute) {
+  landing.hide();
+  startSpellcast();
+  setAppPath(buildOfflinePath(), true);
+} else if (existingRoomFromPath) {
   landing.showView("join");
   landing.joinRoomInput.value = existingRoomFromPath;
   landing.setMessage(`Joining room ${existingRoomFromPath}.`, "info");
+} else {
+  landing.showView("menu");
+  setAppPath(HOME_PATH, true);
 }
 
 async function handleCreateRoom(name: string) {
@@ -193,7 +209,11 @@ function handleRoomEntry(response: CreateRoomResponse | JoinRoomResponse, replac
   hasEnteredGame = false;
   latestRoomSnapshot = response.room;
   landing.showView("lobby");
-  landing.setMessage("");
+  if (response.room.status === "in-progress") {
+    landing.setMessage("Game in progress — you'll spectate until next round.", "info");
+  } else {
+    landing.setMessage("");
+  }
   renderLobby(response.room);
   connectRealtime(response.roomId, response.player.id);
 }
@@ -202,7 +222,7 @@ async function leaveCurrentRoom() {
   if (!lobbyContext) return;
   landing.setBusy(true, "Leaving room...");
   try {
-    await leaveRoom(lobbyContext.roomId, lobbyContext.playerId);
+    await leaveRoom(lobbyContext.roomId, lobbyContext.playerId, lobbyContext.playerId);
   } catch (error) {
     console.warn("Failed to leave room", error);
   } finally {
@@ -219,6 +239,27 @@ async function leaveCurrentRoom() {
     setAppPath(HOME_PATH, true);
     landing.showView("menu");
     landing.setMessage("");
+    landing.show("menu");
+  }
+}
+
+async function handleKickPlayer(playerId: string) {
+  if (!lobbyContext || !lobbyContext.isHost) return;
+  if (playerId === lobbyContext.playerId) return;
+  const targetName =
+    latestRoomSnapshot?.players.find((player) => player.id === playerId)?.name ?? "player";
+  const confirmed = window.confirm(`Remove ${targetName} from the room?`);
+  if (!confirmed) return;
+  landing.setBusy(true, `Removing ${targetName}...`);
+  try {
+    await leaveRoom(lobbyContext.roomId, playerId, lobbyContext.playerId);
+    landing.setMessage(`${targetName} removed from the room.`, "info");
+    window.setTimeout(() => landing.setMessage("", "info"), 1800);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to remove player.";
+    landing.setMessage(message, "error");
+  } finally {
+    landing.setBusy(false);
   }
 }
 
@@ -314,9 +355,17 @@ function renderLobby(room: RoomDTO) {
   const players = room.players.map((player) => ({
     id: player.id,
     name: player.name,
-    isHost: player.id === room.hostId
+    isHost: player.id === room.hostId,
+    connected: player.connected,
+    isSpectator: player.isSpectator ?? false,
+    canKick:
+      isHost &&
+      lobbyContext?.playerId === room.hostId &&
+      player.id !== lobbyContext.playerId &&
+      room.status === "lobby"
   }));
-  const canStart = isHost && room.players.length >= 2;
+  const activeCount = room.players.filter((player) => !player.isSpectator).length;
+  const canStart = isHost && activeCount >= 1;
   const shareUrl = buildShareUrl(room.id);
   landing.updateLobby({
     roomCode: room.id,
@@ -325,7 +374,7 @@ function renderLobby(room: RoomDTO) {
     canStart,
     isHost,
     status: room.status,
-    minPlayersMet: room.players.length >= 2
+    minPlayersMet: activeCount >= 1
   });
 }
 
@@ -349,7 +398,9 @@ function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
       name: player.name,
       score: player.score,
       gems: player.gems,
-      isHost: player.id === room.hostId
+      isHost: player.id === room.hostId,
+      connected: player.connected,
+      isSpectator: player.isSpectator ?? false
     })),
     game: room.game
   };
@@ -361,7 +412,9 @@ function updateGamePlayers(room: RoomDTO) {
     name: player.name,
     isHost: player.id === room.hostId,
     score: player.score,
-    gems: player.gems
+    gems: player.gems,
+    connected: player.connected,
+    isSpectator: player.isSpectator ?? false
   }));
   game?.syncRoomPlayers(snapshot);
 }
@@ -371,9 +424,31 @@ function startSpellcast(roomState?: InitialRoomState, options?: { multiplayer?: 
     game.dispose();
   }
   game = new SpellcastGame(app, dictionary, roomState, options);
+  window.addEventListener("spellcast:exit", handleGameExit);
   if (!roomState?.roomId) {
     soundManager.play("game-start");
   }
+}
+
+function handleGameExit() {
+  window.removeEventListener("spellcast:exit", handleGameExit);
+  if (lobbyContext) {
+    leaveCurrentRoom().catch((err) => {
+      console.error(err);
+      exitOfflineGame();
+    });
+  } else {
+    exitOfflineGame();
+  }
+}
+
+function exitOfflineGame() {
+  game?.dispose();
+  game = null;
+  app.innerHTML = "";
+  landing.show("menu");
+  landing.setMessage("");
+  setAppPath(HOME_PATH, true);
 }
 
 function saveName(name: string) {
@@ -410,10 +485,26 @@ function loadStoredName(): string {
   }
 }
 
+function loadStoredSession(): { roomId: string; playerId: string } | null {
+  try {
+    const roomId = localStorage.getItem(STORAGE_KEYS.room);
+    const playerId = localStorage.getItem(STORAGE_KEYS.player);
+    if (roomId && playerId) {
+      return { roomId, playerId };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function detectRoomIdFromLocation(): string | null {
   const relative = getRelativePath();
-  const match = relative.match(/\/room\/([A-Z0-9]+)/i);
-  return match ? match[1].toUpperCase() : null;
+  const roomMatch = relative.match(/\/room\/([A-Z0-9]+)/i);
+  if (roomMatch) {
+    return roomMatch[1].toUpperCase();
+  }
+  return null;
 }
 
 function getRelativePath(): string {
@@ -425,6 +516,10 @@ function getRelativePath(): string {
 
 function buildRoomPath(roomId: string) {
   return `${BASE_PATH}/room/${roomId}`;
+}
+
+function buildOfflinePath() {
+  return `${BASE_PATH}/offline`;
 }
 
 function buildShareUrl(roomId: string) {
@@ -480,7 +575,14 @@ interface LandingOverlayOptions {
 interface LobbyRenderData {
   roomCode: string;
   shareUrl: string;
-  players: Array<{ id: string; name: string; isHost: boolean }>;
+  players: Array<{
+    id: string;
+    name: string;
+    isHost: boolean;
+    connected: boolean;
+    canKick: boolean;
+    isSpectator: boolean;
+  }>;
   canStart: boolean;
   isHost: boolean;
   status: RoomStatus;
@@ -651,25 +753,60 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   lobbyShareWrap.className = "lobby-share";
   const shareLabel = document.createElement("span");
   shareLabel.textContent = "Invite link";
+  const shareRow = document.createElement("div");
+  shareRow.className = "lobby-share__row";
   const shareInput = document.createElement("input");
   shareInput.className = "lobby-share__input";
   shareInput.readOnly = true;
   const shareCopy = document.createElement("button");
-  shareCopy.className = "hud__btn";
-  shareCopy.textContent = "Copy Link";
+  shareCopy.className = "share-copy-btn";
+  shareCopy.type = "button";
+  shareCopy.setAttribute("aria-label", "Copy invite link");
+  shareCopy.title = "Copy invite link";
+  const copyIcon = document.createElement("i");
+  copyIcon.className = "fa-solid fa-copy";
+  shareCopy.append(copyIcon);
+  let copyFeedbackTimer: number | undefined;
   shareCopy.addEventListener("click", () => {
-    navigator.clipboard
-      .writeText(shareInput.value)
+    const url = shareInput.value.trim();
+    if (!url) return;
+    shareCopy.disabled = true;
+    if (copyFeedbackTimer) {
+      window.clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = undefined;
+    }
+    const resetState = () => {
+      shareCopy.classList.remove("share-copy-btn--success", "share-copy-btn--error");
+      shareCopy.setAttribute("aria-label", "Copy invite link");
+      shareCopy.title = "Copy invite link";
+    };
+    copyTextToClipboard(url)
       .then(() => {
-        shareCopy.textContent = "Copied!";
-        window.setTimeout(() => (shareCopy.textContent = "Copy Link"), 1500);
+        resetState();
+        shareCopy.classList.add("share-copy-btn--success");
+        shareCopy.setAttribute("aria-label", "Link copied!");
+        shareCopy.title = "Link copied!";
+        copyFeedbackTimer = window.setTimeout(() => {
+          resetState();
+          copyFeedbackTimer = undefined;
+        }, 1600);
       })
       .catch(() => {
-        shareCopy.textContent = "Copy failed";
-        window.setTimeout(() => (shareCopy.textContent = "Copy Link"), 1500);
+        resetState();
+        shareCopy.classList.add("share-copy-btn--error");
+        shareCopy.setAttribute("aria-label", "Copy failed");
+        shareCopy.title = "Copy failed";
+        copyFeedbackTimer = window.setTimeout(() => {
+          resetState();
+          copyFeedbackTimer = undefined;
+        }, 1800);
+      })
+      .finally(() => {
+        shareCopy.disabled = false;
       });
   });
-  lobbyShareWrap.append(shareLabel, shareInput, shareCopy);
+  shareRow.append(shareInput, shareCopy);
+  lobbyShareWrap.append(shareLabel, shareRow);
 
   const lobbyDivider = document.createElement("hr");
   lobbyDivider.className = "lobby-divider";
@@ -689,8 +826,11 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   lobbyStartBtn.className = "hud__btn primary";
   lobbyStartBtn.textContent = "Start Game";
   const lobbyLeaveBtn = document.createElement("button");
-  lobbyLeaveBtn.className = "hud__btn";
-  lobbyLeaveBtn.textContent = "Leave Lobby";
+  lobbyLeaveBtn.className = "player-action-btn player-action-btn--exit";
+  lobbyLeaveBtn.setAttribute("aria-label", "Leave lobby");
+  const lobbyLeaveIcon = document.createElement("i");
+  lobbyLeaveIcon.className = "fa-solid fa-door-open";
+  lobbyLeaveBtn.append(lobbyLeaveIcon);
   lobbyActions.append(lobbyStartBtn, lobbyLeaveBtn);
 
   lobbyView.append(
@@ -786,7 +926,52 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       data.players.forEach((player) => {
         const item = document.createElement("li");
         item.className = "lobby-player";
-        item.textContent = player.name + (player.isHost ? " (Host)" : "");
+        const row = document.createElement("div");
+        row.className = "lobby-player__row";
+
+        const left = document.createElement("div");
+        left.className = "lobby-player__left";
+
+        const indicator = document.createElement("span");
+        indicator.className = `status-indicator ${
+          player.connected ? "status-indicator--online" : "status-indicator--offline"
+        }`;
+        indicator.title = player.connected ? "Connected" : "Reconnecting…";
+
+        const name = document.createElement("span");
+        name.className = "lobby-player__name";
+        name.textContent = player.name;
+
+        left.append(indicator, name);
+        row.append(left);
+
+        if (player.isHost) {
+          const badge = document.createElement("span");
+          badge.className = "lobby-player__badge";
+          badge.textContent = "Host";
+          row.append(badge);
+        }
+
+        if (player.isSpectator) {
+          const specBadge = document.createElement("span");
+          specBadge.className = "lobby-player__badge lobby-player__badge--spectator";
+          specBadge.textContent = "Spectator";
+          row.append(specBadge);
+        }
+
+        if (player.canKick) {
+          const kickBtn = document.createElement("button");
+          kickBtn.className = "lobby-player__kick";
+          kickBtn.textContent = "Kick";
+          kickBtn.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            kickHandler?.(player.id);
+          });
+          row.append(kickBtn);
+        }
+
+        item.append(row);
         lobbyPlayersList.appendChild(item);
       });
       if (!data.players.length) {
@@ -794,12 +979,13 @@ function createLandingOverlay(options: LandingOverlayOptions) {
         empty.textContent = "Waiting for players...";
         lobbyPlayersList.appendChild(empty);
       }
-      lobbyStartBtn.textContent = data.isHost ? "Start Game" : "Waiting for Host";
+      lobbyStartBtn.textContent = "Start Game";
       lobbyStartBtn.disabled = !data.canStart;
+      lobbyStartBtn.style.display = data.isHost ? "inline-flex" : "none";
       if (!data.isHost) {
         lobbyStatusText.textContent = "Waiting for the host to start the game.";
       } else if (!data.minPlayersMet) {
-        lobbyStatusText.textContent = "Need at least 2 players to start.";
+        lobbyStatusText.textContent = "Need at least one player to start.";
       } else if (data.status === "in-progress") {
         lobbyStatusText.textContent = "Game starting...";
       } else {
@@ -811,6 +997,9 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       } else {
         lobbyStartBtn.classList.add("primary");
       }
+    },
+    setKickHandler(handler: (playerId: string) => void) {
+      kickHandler = handler;
     }
   };
 }
@@ -839,10 +1028,73 @@ function hideConnectionNotice() {
   connectionNotice.hide();
 }
 
+function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text);
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textarea);
+      if (successful) {
+        resolve();
+      } else {
+        reject(new Error("Copy command was rejected."));
+      }
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error("Copy failed"));
+    }
+  });
+}
+
 // Hot module replace support when running dev server
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     disconnectRealtime();
     game?.dispose();
   });
+}
+
+async function resumeStoredSession(session: { roomId: string; playerId: string }) {
+  landing.setBusy(true, "Reconnecting to your room...");
+  landing.setMessage("Reconnecting to your previous room...", "info");
+  try {
+    const room = await getRoom(session.roomId);
+    const player = room.players.find((entry) => entry.id === session.playerId);
+    if (!player) {
+      clearRoomSession();
+      landing.setMessage("", "info");
+      return;
+    }
+    lobbyContext = {
+      roomId: room.id,
+      playerId: player.id,
+      isHost: player.id === room.hostId
+    };
+    latestRoomSnapshot = room;
+    knownPlayerIds = new Set(room.players.map((entry) => entry.id));
+    hasPlayerSnapshot = true;
+    hasEnteredGame = room.status === "in-progress";
+    setAppPath(buildRoomPath(room.id), true);
+    renderLobby(room);
+    landing.showView("lobby");
+    landing.setMessage("", "info");
+    connectRealtime(room.id, player.id);
+    if (room.status === "in-progress") {
+      enterGame(room);
+    }
+  } catch (error) {
+    clearRoomSession();
+    landing.setMessage("", "info");
+    throw error;
+  } finally {
+    landing.setBusy(false);
+  }
 }

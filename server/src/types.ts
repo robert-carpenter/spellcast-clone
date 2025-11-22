@@ -7,6 +7,8 @@ export interface Player {
   score: number;
   gems: number;
   joinedAt: number;
+  connected: boolean;
+  isSpectator: boolean;
 }
 
 export interface GameState extends GameSnapshot {
