@@ -30,6 +30,14 @@ const PORT = Number(process.env.PORT ?? 4000);
 app.use(cors());
 app.use(express.json());
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const clientDistPath = path.resolve(__dirname, "../../dist");
+if (fs.existsSync(clientDistPath)) {
+  log("Serving static assets from", clientDistPath);
+  app.use(express.static(clientDistPath));
+}
+
 const rooms = new Map<string, Room>();
 const playerPresence = new Map<
   string,
@@ -41,15 +49,13 @@ const gameResetTimers = new Map<string, NodeJS.Timeout>();
 const MAX_PLAYERS = 6;
 const DISCONNECT_GRACE_MS = 5 * 60 * 1000; // allow mobile browsers to background for up to 5 minutes
 const NEW_GAME_DELAY_MS = 5000;
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 const DICTIONARY = loadDictionary();
 
 function log(...args: unknown[]) {
   console.log("[server]", ...args);
 }
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", (_req: Request, res: Response) => {
   log("GET /api/health");
   res.json({ status: "ok" });
 });
@@ -89,7 +95,7 @@ app.post("/api/rooms", (req: Request, res: Response) => {
   });
 });
 
-app.get("/api/rooms/:roomId", (req, res) => {
+app.get("/api/rooms/:roomId", (req: Request, res: Response) => {
   log("GET /api/rooms/:roomId", req.params.roomId);
   const room = rooms.get(req.params.roomId.toUpperCase());
   if (!room) {
@@ -323,6 +329,12 @@ io.on("connection", (socket) => {
     handleSocketDisconnect(socket.id);
   });
 });
+
+if (fs.existsSync(clientDistPath)) {
+  app.get("*", (_req: Request, res: Response) => {
+    res.sendFile(path.join(clientDistPath, "index.html"));
+  });
+}
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`Spellcast server listening on port ${PORT}`);

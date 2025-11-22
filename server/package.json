@@ -4,15 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/server.ts"
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "socket.io": "^4.7.5",
+    "spellcast-clone": "file:..",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^18.19.39",
     "tsx": "^4.19.0",
     "typescript": "^5.3.3"
   }
