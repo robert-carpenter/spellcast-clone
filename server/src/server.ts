@@ -51,6 +51,15 @@ const DISCONNECT_GRACE_MS = 5 * 60 * 1000; // allow mobile browsers to backgroun
 const NEW_GAME_DELAY_MS = 5000;
 const DICTIONARY = loadDictionary();
 
+const nextDictionaryPath = path.resolve(__dirname, "../shared/game/dictionary.txt");
+if (!fs.existsSync(nextDictionaryPath)) {
+  const sourcePath = path.resolve(__dirname, "../../src/game/dictionary.txt");
+  if (fs.existsSync(sourcePath)) {
+    fs.mkdirSync(path.dirname(nextDictionaryPath), { recursive: true });
+    fs.copyFileSync(sourcePath, nextDictionaryPath);
+  }
+}
+
 function log(...args: unknown[]) {
   console.log("[server]", ...args);
 }
