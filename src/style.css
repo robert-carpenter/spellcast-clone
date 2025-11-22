@@ -515,13 +515,30 @@ body {
 }
 
 .pill--score {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: rgba(255, 255, 255, 0.08);
+  color: #f8fbff;
+}
+
+.pill--score .pill__icon {
+  color: #ffd76f;
+  font-size: 12px;
 }
 
 .pill--gem {
-  background: rgba(242, 108, 255, 0.14);
-  border-color: rgba(242, 108, 255, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(242, 108, 255, 0.4);
+  border-color: rgba(242, 108, 255, 1);
   color: #ffdfff;
+}
+
+.pill--gem .pill__icon {
+  color: #ffe6ff;
+  font-size: 12px;
 }
 
 .pill--spectator {

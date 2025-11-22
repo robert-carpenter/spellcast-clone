@@ -356,24 +356,7 @@ function advanceTurn(room: Room) {
   const { index, wrapped } = getNextActiveIndex(room, game.currentPlayerIndex);
   game.currentPlayerIndex = index;
   if (wrapped) {
-    if (game.round < game.totalRounds) {
-      game.round += 1;
-      game.multipliersEnabled = game.round > 1;
-      game.wordMultiplierEnabled = game.round >= 2;
-      if (!game.wordMultiplierEnabled) {
-        game.roundWordTileId = undefined;
-      }
-      refreshAllTiles(game);
-      assignMultipliers(game);
-      if (game.wordMultiplierEnabled) {
-        selectRoundWordTile(game, true);
-      } else {
-        applyRoundWordTile(game);
-      }
-    } else {
-      game.completed = true;
-      determineWinner(room);
-    }
+    advanceRound(room);
   }
 }
 
@@ -403,6 +386,29 @@ export function addLogEntry(game: GameState, message: string) {
   game.log.push(message);
   if (game.log.length > 50) {
     game.log.shift();
+  }
+}
+
+export function advanceRound(room: Room) {
+  const game = requireGame(room);
+  if (!game) return;
+  if (game.round < game.totalRounds) {
+    game.round += 1;
+    game.multipliersEnabled = game.round > 1;
+    game.wordMultiplierEnabled = game.round >= 2;
+    if (!game.wordMultiplierEnabled) {
+      game.roundWordTileId = undefined;
+    }
+    refreshAllTiles(game);
+    assignMultipliers(game);
+    if (game.wordMultiplierEnabled) {
+      selectRoundWordTile(game, true);
+    } else {
+      applyRoundWordTile(game);
+    }
+  } else {
+    game.completed = true;
+    determineWinner(room);
   }
 }
 

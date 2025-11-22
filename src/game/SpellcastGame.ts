@@ -79,6 +79,7 @@ export class SpellcastGame {
   private pendingSnapshot?: GameSnapshot;
   private lastSubmissionToken?: string;
   private lastActivePlayerId?: string;
+  private inputTarget: HTMLElement;
   private wasMyTurn = false;
   private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
 
@@ -157,6 +158,7 @@ export class SpellcastGame {
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.boardViewport.appendChild(this.renderer.domElement);
+    this.inputTarget = this.renderer.domElement;
 
     const aspect = this.boardViewport.clientWidth / this.boardViewport.clientHeight;
     this.camera = new OrthographicCamera(
@@ -177,7 +179,7 @@ export class SpellcastGame {
     if (roomState?.game) {
       this.pendingSnapshot = roomState.game;
     } else {
-      this.board.setMultipliersEnabled(this.round > 1);
+      this.board.setMultipliersEnabled(this.round > 0);
       this.board.setWordMultiplierEnabled(this.round > 1, {
         mode: this.isMultiplayer ? "sync" : "local",
         round: this.round
@@ -202,9 +204,9 @@ export class SpellcastGame {
 
     this.onResize();
 
-    window.addEventListener("pointermove", this.onPointerMove);
-    window.addEventListener("pointerdown", this.onPointerDown);
-    window.addEventListener("click", this.onClick);
+    this.inputTarget.addEventListener("pointermove", this.onPointerMove);
+    this.inputTarget.addEventListener("pointerdown", this.onPointerDown);
+    this.inputTarget.addEventListener("click", this.onClick);
     window.addEventListener("resize", this.onResize);
     this.submitButton.addEventListener("click", this.onSubmitWord);
     this.resetButton.addEventListener("click", this.onResetWord);
@@ -218,9 +220,9 @@ export class SpellcastGame {
 
   public dispose() {
     cancelAnimationFrame(this.animationId);
-    window.removeEventListener("pointermove", this.onPointerMove);
-    window.removeEventListener("pointerdown", this.onPointerDown);
-    window.removeEventListener("click", this.onClick);
+    this.inputTarget.removeEventListener("pointermove", this.onPointerMove);
+    this.inputTarget.removeEventListener("pointerdown", this.onPointerDown);
+    this.inputTarget.removeEventListener("click", this.onClick);
     window.removeEventListener("resize", this.onResize);
     this.submitButton.removeEventListener("click", this.onSubmitWord);
     this.resetButton.removeEventListener("click", this.onResetWord);
@@ -274,7 +276,8 @@ export class SpellcastGame {
     shuffleLabel.textContent = "Shuffle";
     const shuffleGem = document.createElement("span");
     shuffleGem.className = "pill pill--gem power-panel__pill";
-    shuffleGem.textContent = "1";
+    shuffleGem.innerHTML = `<i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i><span>1</span>`;
+    shuffleGem.setAttribute("aria-label", "Costs 1 gem");
     shuffleBtn.append(shuffleIcon, shuffleLabel, shuffleGem);
 
     const rerollBtn = document.createElement("button");
@@ -285,7 +288,8 @@ export class SpellcastGame {
     rerollLabel.textContent = "Swap Letter";
     const rerollGem = document.createElement("span");
     rerollGem.className = "pill pill--gem power-panel__pill";
-    rerollGem.textContent = "3";
+    rerollGem.innerHTML = `<i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i><span>3</span>`;
+    rerollGem.setAttribute("aria-label", "Costs 3 gems");
     rerollBtn.append(rerollIcon, rerollLabel, rerollGem);
 
     controls.append(shuffleBtn, rerollBtn);
@@ -424,7 +428,7 @@ export class SpellcastGame {
 
       const meta = document.createElement("div");
       meta.className = "player__meta";
-      meta.innerHTML = `<span class="pill pill--score">${player.score} pts</span><span class="pill pill--gem">${player.gems} gems</span>`;
+      meta.innerHTML = `<span class="pill pill--score"><i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${player.score}</span><span class="pill pill--gem"><i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i>${player.gems}</span>`;
 
       item.append(header, meta);
       this.playersListEl.appendChild(item);

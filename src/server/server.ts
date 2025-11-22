@@ -11,6 +11,7 @@ import {
   addLogEntry,
   applySwap,
   cancelSwap,
+  advanceRound,
   requestSwapMode,
   shuffleBoard,
   startNewGame,
@@ -421,6 +422,19 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
   const idx = room.players.findIndex((p) => p.id === playerId);
   if (idx === -1) return false;
 
+  const playersBeforeRemoval = [...room.players];
+  const game = room.game;
+  const activeGame = Boolean(room.status === "in-progress" && game && !game.completed);
+  const wasCurrentPlayer = Boolean(activeGame && game && game.currentPlayerIndex === idx);
+  const nextTurn =
+    wasCurrentPlayer && game
+      ? getNextTurnAfterRemoval(playersBeforeRemoval, idx)
+      : null;
+  let preservedIndex = game ? game.currentPlayerIndex : 0;
+  if (game && !wasCurrentPlayer && game.currentPlayerIndex > idx) {
+    preservedIndex = game.currentPlayerIndex - 1;
+  }
+
   room.players.splice(idx, 1);
   if (!room.players.length) {
     rooms.delete(roomId);
@@ -445,8 +459,21 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
     if (room.players.length === 0) {
       room.status = "lobby";
       room.game = undefined;
+    } else if (wasCurrentPlayer) {
+      if (nextTurn) {
+        room.game.currentPlayerIndex = Math.min(nextTurn.index, room.players.length - 1);
+        if (nextTurn.wrapped) {
+          advanceRound(room);
+        }
+      } else {
+        room.game.currentPlayerIndex = 0;
+        normalizeCurrentPlayer(room);
+      }
     }
-    normalizeCurrentPlayer(room);
+    if (!wasCurrentPlayer) {
+      room.game.currentPlayerIndex = Math.min(preservedIndex, room.players.length - 1);
+      normalizeCurrentPlayer(room);
+    }
   }
 
   broadcastRoom(roomId);
@@ -556,6 +583,23 @@ function ensurePlayerTurn(room: Room, playerId: string): boolean {
   }
   const current = room.players[game.currentPlayerIndex];
   return current?.id === playerId;
+}
+
+function getNextTurnAfterRemoval(
+  players: Player[],
+  removedIndex: number
+): { index: number; wrapped: boolean } | null {
+  for (let i = removedIndex + 1; i < players.length; i += 1) {
+    if (!players[i].isSpectator) {
+      return { index: i - 1, wrapped: false };
+    }
+  }
+  for (let i = 0; i < removedIndex; i += 1) {
+    if (!players[i].isSpectator) {
+      return { index: i, wrapped: true };
+    }
+  }
+  return null;
 }
 
 function loadDictionary(): Set<string> {

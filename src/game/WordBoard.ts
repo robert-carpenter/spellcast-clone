@@ -314,13 +314,13 @@ export class WordBoard extends Group {
       this.updateSwapTint(tile);
     });
 
+    this.ensureMinimumVowels();
     this.ensureMultiplier(tiles);
     if (this.wordMultiplierControl === "local") {
       this.applyRoundWordMultiplier();
     }
 
     this.ensureGemQuota();
-    this.ensureMinimumVowels();
     this.updateSelectionLine();
   }
 
@@ -801,8 +801,8 @@ export class WordBoard extends Group {
       this.updateWordMultiplierBadge(tile);
     });
 
-    this.assignRandomGems();
     this.ensureMinimumVowels();
+    this.assignRandomGems();
     this.ensureMultiplier();
     if (this.wordMultiplierControl === "local") {
       this.applyRoundWordMultiplier();

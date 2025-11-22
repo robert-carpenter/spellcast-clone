@@ -64,4 +64,4 @@ export const CONSONANTS = LETTERS.split("")
 
 export const MIN_VOWELS = 10;
 export const GEM_TARGET = 10;
-export const TRIPLE_CHANCE = 0.12;
+export const TRIPLE_CHANCE = 0.15;
