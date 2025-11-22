@@ -6,8 +6,8 @@ import {
   Vector2,
   WebGLRenderer
 } from "three";
-import type { GameSnapshot } from "../../shared/gameTypes";
-import { LETTER_VALUES } from "./../../shared/constants";
+import type { GameSnapshot } from "../shared/gameTypes";
+import { LETTER_VALUES } from "../shared/constants";
 import { WordBoard, Tile } from "./WordBoard";
 import { soundManager } from "../audio/SoundManager";
 

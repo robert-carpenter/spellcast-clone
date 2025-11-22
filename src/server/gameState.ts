@@ -1,5 +1,5 @@
-import { LETTER_VALUES } from "../../shared/constants.js";
-import { GameSnapshot, LastSubmission, TileModel } from "../../shared/gameTypes.js";
+import { LETTER_VALUES } from "../shared/constants.js";
+import { GameSnapshot, LastSubmission, TileModel } from "../shared/gameTypes.js";
 import { GameState, Player, Room } from "./types.js";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

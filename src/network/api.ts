@@ -1,4 +1,4 @@
-import type { GameSnapshot } from "../../shared/gameTypes";
+import type { GameSnapshot } from "../shared/gameTypes";
 
 export interface RoomPlayerDTO {
   id: string;
@@ -26,7 +26,15 @@ export interface CreateRoomResponse {
 
 export interface JoinRoomResponse extends CreateRoomResponse {}
 
-const API_BASE = import.meta.env.VITE_SERVER_URL ?? "http://localhost:4000";
+const API_BASE = (() => {
+  const configured = import.meta.env.VITE_SERVER_URL;
+  if (configured && configured.trim().length) {
+    return configured;
+  }
+  return typeof window !== "undefined"
+    ? window.location.origin
+    : "http://localhost:8900";
+})();
 
 async function request<T>(path: string, options: RequestInit): Promise<T> {
   console.log("[client][api]", options?.method ?? "GET", path, options?.body ?? "");

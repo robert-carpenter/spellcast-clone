@@ -1,33 +1,20 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Install frontend deps and build
 COPY package*.json ./
 RUN npm install
 COPY . .
 RUN npm run build
 
-# Install server deps and build TypeScript
-WORKDIR /app/server
-COPY server/package*.json ./
-RUN npm install
-RUN npm run build
-
 FROM node:18-alpine AS runner
 WORKDIR /app
-
-# Copy built frontend bundle
-COPY --from=builder /app/dist ./dist
-
-# Copy server build output and install prod deps
-COPY --from=builder /app/server/dist/ ./server/dist/
-RUN mkdir -p ./server/dist/server/shared/game
-COPY --from=builder /app/src/game/dictionary.txt ./server/dist/server/shared/game/dictionary.txt
-COPY --from=builder /app/server/package*.json ./server/
-WORKDIR /app/server
-RUN npm install --omit=dev
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
-CMD ["node", "dist/server/src/server.js"]
+COPY package*.json ./
+RUN npm install --omit=dev
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/src/game/dictionary.txt ./dist/server/dictionary.txt
+
+CMD ["node", "dist/server/index.mjs"]

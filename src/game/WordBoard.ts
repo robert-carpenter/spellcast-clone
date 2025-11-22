@@ -6,14 +6,14 @@ import {
   PlaneGeometry,
   Texture
 } from "three";
-import type { TileModel } from "../../shared/gameTypes";
+import type { TileModel } from "../shared/gameTypes";
 import {
   GEM_CHANCE,
   LETTER_COUNTS,
   LETTERS,
   LETTER_VALUES,
   TRIPLE_CHANCE
-} from "./../../shared/constants";
+} from "../shared/constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
 

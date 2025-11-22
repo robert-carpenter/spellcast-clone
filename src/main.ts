@@ -22,6 +22,25 @@ if (!app) {
   throw new Error("App container not found");
 }
 
+const BASE_APP_WIDTH = 1100;
+const BASE_APP_HEIGHT = 620;
+
+function updateAppScale() {
+  const shell = document.querySelector<HTMLElement>(".app-viewport");
+  if (!shell) return;
+  const availableWidth = window.innerWidth - 24;
+  const availableHeight = window.innerHeight - 24;
+  const scale = Math.min(
+    availableWidth / BASE_APP_WIDTH,
+    availableHeight / BASE_APP_HEIGHT,
+    1
+  );
+  document.documentElement.style.setProperty("--app-scale", scale.toString());
+}
+
+updateAppScale();
+window.addEventListener("resize", updateAppScale);
+
 const dictionary = new Set(
   dictionaryRaw
     .split(/\r?\n/)
