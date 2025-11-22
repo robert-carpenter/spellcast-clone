@@ -8,11 +8,13 @@ import {
 } from "three";
 import type { TileModel } from "../shared/gameTypes";
 import {
-  GEM_CHANCE,
+  GEM_TARGET,
   LETTER_COUNTS,
   LETTERS,
   LETTER_VALUES,
-  TRIPLE_CHANCE
+  MIN_VOWELS,
+  TRIPLE_CHANCE,
+  VOWELS
 } from "../shared/constants";
 
 export type TileMesh = Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -239,16 +241,10 @@ export class WordBoard extends Group {
     const payload = this.tiles.map((tile) => ({
       sourceTile: tile,
       letter: tile.letter,
-      hasGem: tile.hasGem,
-      multiplier: tile.multiplier,
-      wordMultiplier: tile.wordMultiplier,
       bagTracked: tile.bagTracked
     }));
 
-    for (let i = payload.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [payload[i], payload[j]] = [payload[j], payload[i]];
-    }
+    this.shuffleArray(payload);
 
     const moves = this.tiles.map((tile, index) => ({
       from: payload[index].sourceTile,
@@ -259,14 +255,15 @@ export class WordBoard extends Group {
       this.tiles.forEach((tile, index) => {
         const data = payload[index];
         tile.letter = data.letter;
-        tile.hasGem = data.hasGem;
-        tile.multiplier = data.multiplier;
-        tile.wordMultiplier = data.wordMultiplier;
         tile.bagTracked = data.bagTracked;
         this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
         this.updateMultiplierBadge(tile);
-        this.updateWordMultiplierBadge(tile);
       });
+      if (this.wordMultiplierEnabled) {
+        this.reassignWordMultiplier();
+      } else {
+        this.tiles.forEach((tile) => this.updateWordMultiplierBadge(tile));
+      }
       this.updateSelectionLine();
     };
 
@@ -282,6 +279,7 @@ export class WordBoard extends Group {
     this.assignLetterFromBag(tile);
     this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
     this.updateSelectionLine();
+    this.ensureMinimumVowels();
   }
 
   public swapTileLetter(tile: Tile, letter: string) {
@@ -289,6 +287,7 @@ export class WordBoard extends Group {
     tile.letter = this.normalizeLetter(letter);
     tile.bagTracked = false;
     this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+    this.ensureMinimumVowels();
   }
 
   public setSwapMode(active: boolean) {
@@ -307,7 +306,7 @@ export class WordBoard extends Group {
 
       this.releaseTileLetter(tile);
       this.assignLetterFromBag(tile);
-      tile.hasGem = Math.random() < GEM_CHANCE;
+      tile.hasGem = false;
       tile.multiplier = "none";
       if (resetWordMultiplier || tile.wordMultiplier === "doubleWord") {
         tile.wordMultiplier = "none";
@@ -329,6 +328,8 @@ export class WordBoard extends Group {
       this.ensureWordMultiplier(tiles);
     }
 
+    this.ensureGemQuota();
+    this.ensureMinimumVowels();
     this.updateSelectionLine();
   }
 
@@ -428,6 +429,84 @@ export class WordBoard extends Group {
     const target = candidates[Math.floor(Math.random() * candidates.length)];
     target.wordMultiplier = "doubleWord";
     this.updateWordMultiplierBadge(target);
+  }
+
+  private reassignWordMultiplier() {
+    const current = this.tiles.find((tile) => tile.wordMultiplier === "doubleWord");
+    let candidates = this.tiles.filter((tile) => tile !== current);
+    if (!candidates.length) {
+      candidates = [...this.tiles];
+    }
+    if (!candidates.length) return;
+    const target = candidates[Math.floor(Math.random() * candidates.length)];
+    this.tiles.forEach((tile) => {
+      tile.wordMultiplier = tile === target ? "doubleWord" : "none";
+      this.updateWordMultiplierBadge(tile);
+    });
+  }
+
+  private assignRandomGems(target = GEM_TARGET) {
+    this.tiles.forEach((tile) => {
+      if (tile.hasGem) {
+        tile.hasGem = false;
+        this.applyStyle(tile, tile.state);
+      }
+    });
+    this.ensureGemQuota(target);
+  }
+
+  private ensureGemQuota(target = GEM_TARGET) {
+    if (!this.tiles.length) return;
+    const desired = Math.min(target, this.tiles.length);
+    const current = this.tiles.reduce((count, tile) => count + (tile.hasGem ? 1 : 0), 0);
+    if (current >= desired) return;
+    const missing = desired - current;
+    const candidates = this.tiles.filter((tile) => !tile.hasGem);
+    if (!candidates.length) return;
+    this.shuffleArray(candidates);
+    const additions = Math.min(missing, candidates.length);
+    for (let i = 0; i < additions; i += 1) {
+      const tile = candidates[i];
+      tile.hasGem = true;
+      this.applyStyle(tile, tile.state);
+    }
+  }
+
+  private ensureMinimumVowels(target = MIN_VOWELS) {
+    if (!this.tiles.length) return;
+    const desired = Math.min(target, this.tiles.length);
+    const current = this.tiles.reduce((count, tile) => count + (this.isVowel(tile.letter) ? 1 : 0), 0);
+    if (current >= desired) return;
+    const candidates = this.tiles.filter((tile) => !this.isVowel(tile.letter));
+    if (!candidates.length) return;
+    this.shuffleArray(candidates);
+    const needed = Math.min(desired - current, candidates.length);
+    for (let i = 0; i < needed; i += 1) {
+      this.forceTileToVowel(candidates[i]);
+    }
+  }
+
+  private forceTileToVowel(tile: Tile) {
+    this.releaseTileLetter(tile);
+    const draw = this.drawLetterFromBag((letter) => this.isVowel(letter));
+    tile.letter = this.normalizeLetter(draw.letter);
+    tile.bagTracked = draw.fromBag;
+    const nextState = this.selected.has(tile)
+      ? "selected"
+      : tile === this.hovered
+        ? "hover"
+        : "base";
+    this.applyStyle(tile, nextState);
+    this.updateMultiplierBadge(tile);
+    this.updateWordMultiplierBadge(tile);
+    this.updateSwapTint(tile);
+  }
+
+  private shuffleArray<T>(items: T[]): void {
+    for (let i = items.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [items[i], items[j]] = [items[j], items[i]];
+    }
   }
 
   private createMultiplierBadge(multiplier: Multiplier): Mesh {
@@ -602,31 +681,46 @@ export class WordBoard extends Group {
     this.bagTotal += 1;
   }
 
-  private drawLetterFromBag(): { letter: string; fromBag: boolean } {
-    if (this.bagTotal <= 0) {
-      return {
-        letter: LETTERS[Math.floor(Math.random() * LETTERS.length)],
-        fromBag: false
-      };
-    }
-    const target = Math.random() * this.bagTotal;
-    let cumulative = 0;
-    for (const [letter, count] of this.letterBag) {
-      if (count <= 0) continue;
-      cumulative += count;
-      if (target < cumulative) {
-        this.consumeLetterFromBag(letter);
-        return { letter, fromBag: true };
+  private drawLetterFromBag(
+    filter?: (letter: string) => boolean
+  ): { letter: string; fromBag: boolean } {
+    const entries = Array.from(this.letterBag.entries()).filter(([letter, count]) => {
+      if (count <= 0) return false;
+      return filter ? filter(letter) : true;
+    });
+    const total = filter
+      ? entries.reduce((sum, [, count]) => sum + count, 0)
+      : this.bagTotal;
+    if (total > 0 && entries.length) {
+      const target = Math.random() * total;
+      let cumulative = 0;
+      for (const [letter, count] of entries) {
+        cumulative += count;
+        if (target < cumulative) {
+          this.consumeLetterFromBag(letter);
+          return { letter, fromBag: true };
+        }
       }
     }
+    const pool = filter ? VOWELS : LETTERS;
     return {
-      letter: LETTERS[Math.floor(Math.random() * LETTERS.length)],
+      letter: this.randomLetterFromSet(pool),
       fromBag: false
     };
   }
 
   private normalizeLetterKey(letter: string): string {
     return (letter ?? "").trim().charAt(0).toUpperCase();
+  }
+
+  private isVowel(letter: string): boolean {
+    return VOWELS.includes(this.normalizeLetterKey(letter));
+  }
+
+  private randomLetterFromSet(pool: string): string {
+    const source = pool && pool.length ? pool : LETTERS;
+    const index = Math.floor(Math.random() * source.length);
+    return source.charAt(index);
   }
 
   private assignLetterFromBag(tile: Tile) {
@@ -654,8 +748,7 @@ export class WordBoard extends Group {
       for (let x = 0; x < this.cols; x += 1) {
         const draw = this.drawLetterFromBag();
         const letter = this.normalizeLetter(draw.letter);
-        const hasGem = Math.random() < GEM_CHANCE;
-        tilesData.push({ x, y, letter, hasGem, bagTracked: draw.fromBag });
+        tilesData.push({ x, y, letter, hasGem: false, bagTracked: draw.fromBag });
       }
     }
 
@@ -697,6 +790,8 @@ export class WordBoard extends Group {
       this.updateWordMultiplierBadge(tile);
     });
 
+    this.assignRandomGems();
+    this.ensureMinimumVowels();
     this.ensureMultiplier();
     this.ensureWordMultiplier();
   }

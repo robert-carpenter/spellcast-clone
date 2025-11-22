@@ -1,9 +1,8 @@
-import { LETTER_VALUES } from "../shared/constants.js";
+import { GEM_TARGET, LETTER_VALUES, MIN_VOWELS, VOWELS } from "../shared/constants.js";
 import { GameSnapshot, LastSubmission, TileModel } from "../shared/gameTypes.js";
 import { GameState, Player, Room } from "./types.js";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const GEM_CHANCE = 0.25;
 const TRIPLE_CHANCE = 0.12;
 const BOARD_COLS = 5;
 const BOARD_ROWS = 5;
@@ -193,23 +192,15 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
   if (player.isSpectator) return { success: false, error: "Spectators cannot use Shuffle." };
   if (player.gems < 1) return { success: false, error: "Need 1 gem to shuffle." };
   player.gems -= 1;
-  const payload = game.tiles.map((tile: TileModel) => ({
-    letter: tile.letter,
-    hasGem: tile.hasGem,
-    multiplier: tile.multiplier,
-    wordMultiplier: tile.wordMultiplier
-  }));
-  for (let i = payload.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [payload[i], payload[j]] = [payload[j], payload[i]];
-  }
+  const letters = game.tiles.map((tile: TileModel) => tile.letter);
+  shuffleArray(letters);
   game.tiles.forEach((tile: TileModel, index: number) => {
-    const data = payload[index];
-    tile.letter = data.letter;
-    tile.hasGem = data.hasGem;
-    tile.multiplier = data.multiplier;
-    tile.wordMultiplier = data.wordMultiplier;
+    tile.letter = letters[index];
   });
+  if (game.wordMultiplierEnabled) {
+    moveWordMultiplier(game.tiles);
+  }
+  ensureMinimumVowels(game.tiles);
   return { success: true };
 }
 
@@ -251,6 +242,7 @@ export function applySwap(
   tile.letter = normalizeLetter(letter);
   tile.hasGem = tile.hasGem; // no change
   game.swapModePlayerId = undefined;
+  ensureMinimumVowels(game.tiles);
   return { success: true };
 }
 
@@ -279,12 +271,14 @@ function createTiles(
         x,
         y,
         letter: randomLetter(),
-        hasGem: Math.random() < GEM_CHANCE,
+        hasGem: false,
         multiplier: "none",
         wordMultiplier: "none"
       });
     }
   }
+  assignRandomGems(tiles);
+  ensureMinimumVowels(tiles);
   if (multipliersEnabled) {
     ensureLetterMultiplier(tiles);
   }
@@ -297,13 +291,15 @@ function createTiles(
 function refreshTiles(game: GameState, tiles: TileModel[]) {
   tiles.forEach((tile: TileModel) => {
     tile.letter = randomLetter();
-    tile.hasGem = Math.random() < GEM_CHANCE;
+    tile.hasGem = false;
     tile.multiplier = "none";
     tile.wordMultiplier = game.wordMultiplierEnabled ? tile.wordMultiplier : "none";
     if (!game.wordMultiplierEnabled) {
       tile.wordMultiplier = "none";
     }
   });
+  topUpGems(game.tiles);
+  ensureMinimumVowels(game.tiles);
 }
 
 function assignMultipliers(game: GameState) {
@@ -331,6 +327,19 @@ function ensureWordMultiplier(tiles: TileModel[]) {
   if (!candidates.length) return;
   const target = candidates[Math.floor(Math.random() * candidates.length)];
   target.wordMultiplier = "doubleWord";
+}
+
+function moveWordMultiplier(tiles: TileModel[]) {
+  if (!tiles.length) return;
+  const currentIndex = tiles.findIndex((tile) => tile.wordMultiplier === "doubleWord");
+  let candidates = tiles.filter((_, index) => index !== currentIndex);
+  if (!candidates.length) {
+    candidates = [...tiles];
+  }
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+  tiles.forEach((tile) => {
+    tile.wordMultiplier = tile === target ? "doubleWord" : "none";
+  });
 }
 
 function isValidSelection(tiles: TileModel[]): boolean {
@@ -389,10 +398,12 @@ function advanceTurn(room: Room) {
 function refreshAllTiles(game: GameState) {
   game.tiles.forEach((tile: TileModel) => {
     tile.letter = randomLetter();
-    tile.hasGem = Math.random() < GEM_CHANCE;
+    tile.hasGem = false;
     tile.multiplier = "none";
     tile.wordMultiplier = "none";
   });
+  assignRandomGems(game.tiles);
+  ensureMinimumVowels(game.tiles);
 }
 
 function determineWinner(room: Room) {
@@ -412,8 +423,60 @@ export function addLogEntry(game: GameState, message: string) {
   }
 }
 
+function assignRandomGems(tiles: TileModel[], target = GEM_TARGET) {
+  tiles.forEach((tile) => {
+    if (tile.hasGem) {
+      tile.hasGem = false;
+    }
+  });
+  topUpGems(tiles, target);
+}
+
+function topUpGems(tiles: TileModel[], target = GEM_TARGET) {
+  if (!tiles.length) return;
+  const desired = Math.min(target, tiles.length);
+  const current = tiles.reduce((count, tile) => count + (tile.hasGem ? 1 : 0), 0);
+  if (current >= desired) return;
+  const pool = tiles.filter((tile) => !tile.hasGem);
+  if (!pool.length) return;
+  shuffleArray(pool);
+  const needed = Math.min(desired - current, pool.length);
+  for (let i = 0; i < needed; i += 1) {
+    pool[i].hasGem = true;
+  }
+}
+
+function ensureMinimumVowels(tiles: TileModel[], target = MIN_VOWELS) {
+  if (!tiles.length) return;
+  const desired = Math.min(target, tiles.length);
+  const current = tiles.reduce((count, tile) => count + (isVowel(tile.letter) ? 1 : 0), 0);
+  if (current >= desired) return;
+  const pool = tiles.filter((tile) => !isVowel(tile.letter));
+  if (!pool.length) return;
+  shuffleArray(pool);
+  const needed = Math.min(desired - current, pool.length);
+  for (let i = 0; i < needed; i += 1) {
+    pool[i].letter = randomVowel();
+  }
+}
+
+function shuffleArray<T>(items: T[]) {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+}
+
 function randomLetter(): string {
   return LETTERS[Math.floor(Math.random() * LETTERS.length)];
+}
+
+function randomVowel(): string {
+  return VOWELS[Math.floor(Math.random() * VOWELS.length)];
+}
+
+function isVowel(letter: string): boolean {
+  return VOWELS.includes((letter ?? "").toUpperCase());
 }
 
 function normalizeLetter(letter: string): string {

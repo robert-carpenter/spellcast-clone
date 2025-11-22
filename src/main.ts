@@ -70,7 +70,16 @@ landing.setKickHandler((playerId) => {
 });
 
 const storedSession = loadStoredSession();
-if (storedSession) {
+const inviteOverridesSession =
+  storedSession && existingRoomFromPath && storedSession.roomId !== existingRoomFromPath
+    ? storedSession
+    : null;
+
+if (inviteOverridesSession) {
+  void leaveStoredSessionForInvite(inviteOverridesSession);
+}
+
+if (storedSession && !inviteOverridesSession) {
   resumeStoredSession(storedSession).catch((err) => console.warn("Resume failed", err));
 }
 
@@ -495,6 +504,17 @@ function clearRoomSession() {
     localStorage.removeItem(STORAGE_KEYS.player);
   } catch {
     // ignore
+  }
+}
+
+async function leaveStoredSessionForInvite(session: { roomId: string; playerId: string }) {
+  landing.setMessage("Switching rooms...", "info");
+  try {
+    await leaveRoom(session.roomId, session.playerId, session.playerId);
+  } catch (error) {
+    console.warn("Failed to leave previous room during invite navigation", error);
+  } finally {
+    clearRoomSession();
   }
 }
 

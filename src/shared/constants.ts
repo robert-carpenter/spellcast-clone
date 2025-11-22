@@ -62,5 +62,6 @@ export const CONSONANTS = LETTERS.split("")
   .filter((ch) => !VOWELS.includes(ch))
   .join("");
 
-export const GEM_CHANCE = 0.6;
+export const MIN_VOWELS = 10;
+export const GEM_TARGET = 10;
 export const TRIPLE_CHANCE = 0.12;
