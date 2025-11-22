@@ -395,7 +395,7 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
   room.players.splice(idx, 1);
   if (!room.players.length) {
     rooms.delete(roomId);
-    io.to(roomId).emit("room:update", { ...room, players: [] });
+    activeIo?.to(roomId).emit("room:update", { ...room, players: [] });
     return true;
   }
 

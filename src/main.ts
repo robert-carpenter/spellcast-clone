@@ -231,7 +231,7 @@ function handleRoomEntry(response: CreateRoomResponse | JoinRoomResponse, replac
   latestRoomSnapshot = response.room;
   landing.showView("lobby");
   if (response.room.status === "in-progress") {
-    landing.setMessage("Game in progress — you'll spectate until next round.", "info");
+    landing.setMessage("Game in progress - you'll spectate until next round.", "info");
   } else {
     landing.setMessage("");
   }

@@ -6,6 +6,9 @@
   --tile: #1c2236;
   --tile-border: #374469;
   --text: #e9f0ff;
+  --app-scale: 1;
+  --app-width: 1100px;
+  --app-height: 620px;
 }
 
 * {
@@ -18,21 +21,34 @@ body {
   color: var(--text);
   font-family: "Play", "Segoe UI", Tahoma, sans-serif;
   background: var(--bg);
+  overflow: hidden;
+}
+
+.app-viewport {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 #app {
-  width: min(1100px, 96vw, calc(96vh * 16 / 9));
-  aspect-ratio: 16 / 9;
-  max-height: 96vh;
-  aspect-ratio: 16 / 9;
+  width: var(--app-width);
+  height: var(--app-height);
   border: 1px solid #161a2a;
   border-radius: 14px;
   overflow: hidden;
-  position: relative;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(var(--app-scale));
+  transform-origin: center center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
   display: flex;
   gap: 12px;
@@ -879,54 +895,6 @@ body {
   border-color: rgba(255, 0, 0, 0.4);
 }
 
-@media (max-width: 900px), (max-height: 520px) {
-  #app {
-    flex-direction: column;
-    width: min(1100px, 100vw);
-    max-height: none;
-    height: auto;
-    aspect-ratio: auto;
-  }
-
-  .board-area {
-    flex: none;
-    width: 100%;
-  }
-
-  .board-header {
-    text-align: center;
-  }
-
-  .board-viewport {
-    min-height: 320px;
-  }
-
-  .word-box {
-    position: static;
-    width: 100%;
-    margin: 0 auto 10px;
-    left: auto;
-    top: auto;
-  }
-
-  .power-panel {
-    position: static;
-    width: 100%;
-    margin-top: 10px;
-  }
-
-  .hud {
-    position: static;
-    margin-top: 10px;
-    justify-content: center;
-  }
-
-  .sidebar {
-    flex: none;
-    width: 100%;
-    order: 3;
-  }
-}
 .player__kick-icon {
   border: none;
   background: rgba(255, 255, 255, 0.08);
