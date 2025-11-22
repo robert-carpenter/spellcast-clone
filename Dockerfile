@@ -21,6 +21,8 @@ COPY --from=builder /app/dist ./dist
 
 # Copy server build output and install prod deps
 COPY --from=builder /app/server/dist/ ./server/dist/
+RUN mkdir -p ./server/dist/shared/game
+COPY --from=builder /app/src/game/dictionary.txt ./server/dist/shared/game/dictionary.txt
 COPY --from=builder /app/server/package*.json ./server/
 WORKDIR /app/server
 RUN npm install --omit=dev
