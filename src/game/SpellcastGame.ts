@@ -41,7 +41,6 @@ export class SpellcastGame {
   private container: HTMLElement;
   private boardArea: HTMLDivElement;
   private boardViewport: HTMLDivElement;
-  private boardHeader: HTMLElement;
   private sidebar: HTMLDivElement;
   private scene = new Scene();
   private camera: OrthographicCamera;
@@ -76,7 +75,6 @@ export class SpellcastGame {
   private lastSubmissionToken?: string;
   private lastActivePlayerId?: string;
   private wasMyTurn = false;
-  private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
   private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
 
   constructor(
@@ -117,14 +115,13 @@ export class SpellcastGame {
     this.sidebar.className = "sidebar";
     this.container.append(this.boardArea, this.sidebar);
 
-    this.boardHeader = this.createBoardHeader();
     this.wordBox = this.createWordBox();
-    this.boardArea.append(this.boardHeader, this.boardViewport);
+    this.boardArea.append(this.boardViewport);
 
     this.renderer = new WebGLRenderer({
       antialias: true
     });
-    this.renderer.setClearColor(new Color("#0b0f1a"));
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.boardViewport.appendChild(this.renderer.domElement);
 
@@ -194,13 +191,6 @@ export class SpellcastGame {
     this.shuffleButton.removeEventListener("click", this.onShuffle);
     this.rerollButton.removeEventListener("click", this.onRerollLetter);
     this.renderer.dispose();
-  }
-
-  private createBoardHeader() {
-    const header = document.createElement("div");
-    header.className = "board-header";
-    header.textContent = "Spellcast Clone";
-    return header;
   }
 
   private createHud() {
@@ -630,8 +620,6 @@ export class SpellcastGame {
       this.wordBox.style.width = "";
       this.wordBox.style.left = "";
       this.wordBox.style.top = "";
-      this.boardHeader.style.width = "";
-      this.boardHeader.style.marginLeft = "";
       if (this.controlsWrap) {
         this.controlsWrap.style.width = "";
         this.controlsWrap.style.marginLeft = "";
@@ -659,13 +647,11 @@ export class SpellcastGame {
     const boardTopPx = (topBound - boardTopWorld) * pxPerWorldY;
     const boxHeight = this.wordBox.offsetHeight || 54;
     const marginPx = 15;
-    const topPx = Math.max(boxHeight/2 - marginPx, 0);
+    const topPx = 0;
 
     this.wordBox.style.width = `${boardWidthPx}px`;
     this.wordBox.style.left = `${boardLeftPx}px`;
     this.wordBox.style.top = `${topPx}px`;
-    this.boardHeader.style.width = `${boardWidthPx}px`;
-    this.boardHeader.style.marginLeft = `${boardLeftPx}px`;
     if (this.controlsWrap) {
       this.controlsWrap.style.width = `${boardWidthPx}px`;
       this.controlsWrap.style.marginLeft = `8px`;
@@ -788,6 +774,9 @@ export class SpellcastGame {
     this.exitSwapMode();
     this.renderPlayers();
     this.logEvent(`Round ${this.round}: ${player.name} swapped a letter to "${letter}".`);
+
+    this.board.clearSelection();
+    this.updateWord([]);
   };
 
   private showLetterPicker(): Promise<string | null> {
