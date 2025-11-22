@@ -1,6 +1,6 @@
-import { LETTER_VALUES } from "../../shared/constants";
-import { GameSnapshot, LastSubmission, TileModel } from "../../shared/gameTypes";
-import { GameState, Player, Room } from "./types";
+import { LETTER_VALUES } from "../../shared/constants.js";
+import { GameSnapshot, LastSubmission, TileModel } from "../../shared/gameTypes.js";
+import { GameState, Player, Room } from "./types.js";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const GEM_CHANCE = 0.25;
@@ -12,15 +12,15 @@ const LONG_WORD_THRESHOLD = 6;
 const LONG_WORD_BONUS = 10;
 
 function getActivePlayers(room: Room): Player[] {
-  return room.players.filter((player) => !player.isSpectator);
+  return room.players.filter((player: Player) => !player.isSpectator);
 }
 
 function hasActivePlayers(room: Room): boolean {
-  return room.players.some((player) => !player.isSpectator);
+  return room.players.some((player: Player) => !player.isSpectator);
 }
 
 function findFirstActiveIndex(room: Room): number {
-  return room.players.findIndex((player) => !player.isSpectator);
+  return room.players.findIndex((player: Player) => !player.isSpectator);
 }
 
 function getCurrentTurnPlayer(room: Room): Player | undefined {
@@ -96,7 +96,7 @@ export function createInitialGameState(): GameState {
 
 export function startNewGame(room: Room) {
   room.game = createInitialGameState();
-  room.players.forEach((player) => {
+  room.players.forEach((player: Player) => {
     player.score = 0;
     player.gems = 3;
     player.isSpectator = false;
@@ -129,7 +129,7 @@ export function submitWord(
     return { success: false, error: "It is not your turn." };
   }
 
-  const tiles = tileIds.map((id) => game.tiles.find((tile) => tile.id === id));
+  const tiles = tileIds.map((id) => game.tiles.find((tile: TileModel) => tile.id === id));
   if (tiles.some((tile) => !tile)) {
     return { success: false, error: "Invalid tile selection." };
   }
@@ -188,12 +188,12 @@ export function submitWord(
 export function shuffleBoard(room: Room, playerId: string): ActionResult {
   const game = requireGame(room);
   if (!game) return { success: false, error: "Game not started." };
-  const player = room.players.find((p) => p.id === playerId);
+  const player = room.players.find((p: Player) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
   if (player.isSpectator) return { success: false, error: "Spectators cannot use Shuffle." };
   if (player.gems < 1) return { success: false, error: "Need 1 gem to shuffle." };
   player.gems -= 1;
-  const payload = game.tiles.map((tile) => ({
+  const payload = game.tiles.map((tile: TileModel) => ({
     letter: tile.letter,
     hasGem: tile.hasGem,
     multiplier: tile.multiplier,
@@ -203,7 +203,7 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
     const j = Math.floor(Math.random() * (i + 1));
     [payload[i], payload[j]] = [payload[j], payload[i]];
   }
-  game.tiles.forEach((tile, index) => {
+  game.tiles.forEach((tile: TileModel, index: number) => {
     const data = payload[index];
     tile.letter = data.letter;
     tile.hasGem = data.hasGem;
@@ -216,7 +216,7 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
 export function requestSwapMode(room: Room, playerId: string): ActionResult {
   const game = requireGame(room);
   if (!game) return { success: false, error: "Game not started." };
-  const player = room.players.find((p) => p.id === playerId);
+  const player = room.players.find((p: Player) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
   if (player.isSpectator) return { success: false, error: "Spectators cannot swap letters." };
   if (player.gems < 3) return { success: false, error: "Need 3 gems to swap a letter." };
@@ -232,7 +232,7 @@ export function applySwap(
 ): ActionResult {
   const game = requireGame(room);
   if (!game) return { success: false, error: "Game not started." };
-  const player = room.players.find((p) => p.id === playerId);
+  const player = room.players.find((p: Player) => p.id === playerId);
   if (!player) return { success: false, error: "Player not found." };
   if (player.isSpectator) {
     return { success: false, error: "Spectators cannot swap letters." };
@@ -243,7 +243,7 @@ export function applySwap(
   if (player.gems < 3) {
     return { success: false, error: "You do not have enough gems." };
   }
-  const tile = game.tiles.find((t) => t.id === tileId);
+  const tile = game.tiles.find((t: TileModel) => t.id === tileId);
   if (!tile) {
     return { success: false, error: "Tile not found." };
   }

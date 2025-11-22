@@ -14,8 +14,8 @@ import {
   shuffleBoard,
   startNewGame,
   submitWord
-} from "./gameState";
-import { Room, Player } from "./types";
+} from "./gameState.js";
+import { Room, Player } from "./types.js";
 
 const app = express();
 const httpServer = createServer(app);

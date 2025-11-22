@@ -1,4 +1,4 @@
-import { GameSnapshot } from "../../shared/gameTypes";
+import { GameSnapshot } from "../../shared/gameTypes.js";
 
 export interface Player {
   id: string;
