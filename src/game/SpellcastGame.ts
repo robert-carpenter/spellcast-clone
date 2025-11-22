@@ -650,12 +650,18 @@ export class SpellcastGame {
 
   private updateWord(selection: Tile[]) {
     const word = selection.map((t) => t.letter).join("").toUpperCase();
-    this.wordBox.textContent = word || "—";
     if (!word) {
+      this.wordBox.textContent = "-";
       this.setWordBoxValidity(null);
       return;
     }
     const isValid = this.dictionary.has(word);
+    if (isValid) {
+      const potentialScore = this.calculateWordScore(selection, word.length >= 6);
+      this.wordBox.textContent = `${word} (${potentialScore})`;
+    } else {
+      this.wordBox.textContent = word;
+    }
     this.setWordBoxValidity(isValid);
   }
 
