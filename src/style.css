@@ -927,3 +927,17 @@ body {
     order: 3;
   }
 }
+.player__kick-icon {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffb0b0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.player__kick-icon:hover {
+  background: rgba(255, 0, 0, 0.15);
+  color: #ffd0d0;
+}

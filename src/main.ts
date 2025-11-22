@@ -169,6 +169,7 @@ async function handleCreateRoom(name: string) {
   landing.setBusy(true, "Creating room...");
   try {
     const response = await createRoom(name);
+    saveName(name);
     handleRoomEntry(response, false);
   } catch (error) {
     landing.setMessage(
@@ -185,6 +186,7 @@ async function handleJoinRoom(name: string, roomCode: string) {
   landing.setBusy(true, "Joining room...");
   try {
     const response = await joinRoom(roomCode, name);
+    saveName(name);
     handleRoomEntry(response, true);
   } catch (error) {
     landing.setMessage(
@@ -700,6 +702,7 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   joinNameInput.className = "landing-panel__input";
   joinNameInput.maxLength = 32;
   joinNameInput.placeholder = "Your name";
+  joinNameInput.value = options.initialName ?? "";
 
   const joinRoomLabel = document.createElement("label");
   joinRoomLabel.className = "landing-panel__label";

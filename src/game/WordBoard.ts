@@ -70,6 +70,7 @@ export class WordBoard extends Group {
   private wordMultiplierEnabled = true;
   private letterBag = new Map<string, number>();
   private bagTotal = 0;
+  private shuffleAnimating = false;
 
   constructor(cols = 5, rows = 5) {
     super();
@@ -103,25 +104,41 @@ export class WordBoard extends Group {
 
   public applyExternalState(states: TileModel[]) {
     const selectionSet = new Set(this.selected);
-    states.forEach((state) => {
-      const tile = this.tileMap.get(state.id);
-      if (!tile) return;
-      tile.letter = state.letter;
-      tile.hasGem = state.hasGem;
-      tile.multiplier = state.multiplier;
-      tile.wordMultiplier = state.wordMultiplier;
-      const nextState = selectionSet.has(tile)
-        ? "selected"
-        : tile === this.hovered
-          ? "hover"
-          : "base";
-      this.applyStyle(tile, nextState);
-      this.updateMultiplierBadge(tile);
-      this.updateWordMultiplierBadge(tile);
-      this.updateSwapTint(tile);
-    });
-    this.updateSelectionLine();
-    this.rebuildLetterBagFromBoard();
+    const applyUpdates = () => {
+      states.forEach((state) => {
+        const tile = this.tileMap.get(state.id);
+        if (!tile) return;
+        tile.letter = state.letter;
+        tile.hasGem = state.hasGem;
+        tile.multiplier = state.multiplier;
+        tile.wordMultiplier = state.wordMultiplier;
+        tile.bagTracked = true;
+        const nextState = selectionSet.has(tile)
+          ? "selected"
+          : tile === this.hovered
+            ? "hover"
+            : "base";
+        this.applyStyle(tile, nextState);
+        this.updateMultiplierBadge(tile);
+        this.updateWordMultiplierBadge(tile);
+        this.updateSwapTint(tile);
+      });
+      this.updateSelectionLine();
+      this.rebuildLetterBagFromBoard();
+    };
+
+    const moves =
+      !this.shuffleAnimating && states.length === this.tiles.length
+        ? this.deriveShuffleMoves(states)
+        : null;
+
+    if (moves && moves.some((move) => move.from !== move.to)) {
+      this.animateShuffle(moves, () => {
+        applyUpdates();
+      });
+    } else {
+      applyUpdates();
+    }
   }
 
   public setSelectionFromIds(tileIds: string[]) {
@@ -218,8 +235,9 @@ export class WordBoard extends Group {
   }
 
   public shuffleLetters() {
-    if (!this.tiles.length) return;
+    if (!this.tiles.length || this.shuffleAnimating) return;
     const payload = this.tiles.map((tile) => ({
+      sourceTile: tile,
       letter: tile.letter,
       hasGem: tile.hasGem,
       multiplier: tile.multiplier,
@@ -232,18 +250,31 @@ export class WordBoard extends Group {
       [payload[i], payload[j]] = [payload[j], payload[i]];
     }
 
-    this.tiles.forEach((tile, index) => {
-      const data = payload[index];
-      tile.letter = data.letter;
-      tile.hasGem = data.hasGem;
-      tile.multiplier = data.multiplier;
-      tile.wordMultiplier = data.wordMultiplier;
-      tile.bagTracked = data.bagTracked;
-      this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
-      this.updateMultiplierBadge(tile);
-      this.updateWordMultiplierBadge(tile);
-    });
-    this.updateSelectionLine();
+    const moves = this.tiles.map((tile, index) => ({
+      from: payload[index].sourceTile,
+      to: tile
+    }));
+
+    const applyShuffle = () => {
+      this.tiles.forEach((tile, index) => {
+        const data = payload[index];
+        tile.letter = data.letter;
+        tile.hasGem = data.hasGem;
+        tile.multiplier = data.multiplier;
+        tile.wordMultiplier = data.wordMultiplier;
+        tile.bagTracked = data.bagTracked;
+        this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
+        this.updateMultiplierBadge(tile);
+        this.updateWordMultiplierBadge(tile);
+      });
+      this.updateSelectionLine();
+    };
+
+    if (moves.every((move) => move.from === move.to)) {
+      applyShuffle();
+    } else {
+      this.animateShuffle(moves, applyShuffle);
+    }
   }
 
   public rerollLetter(tile: Tile) {
@@ -680,6 +711,88 @@ export class WordBoard extends Group {
     tile.mesh.material.map = this.getLetterTexture(tile.letter, state, tile.hasGem, tile.multiplier);
     tile.mesh.material.needsUpdate = true;
     this.updateSwapTint(tile);
+  }
+
+  private animateShuffle(
+    moves: Array<{ from: Tile; to: Tile }>,
+    onComplete: () => void,
+    duration = 500
+  ) {
+    this.shuffleAnimating = true;
+    const clones = moves.map((move) => {
+      const cloneMaterial = (move.from.mesh.material as MeshBasicMaterial).clone();
+      cloneMaterial.transparent = true;
+      const mesh = new Mesh(this.baseGeometry, cloneMaterial);
+      mesh.position.copy(move.from.mesh.position);
+      mesh.renderOrder = move.from.mesh.renderOrder + 1;
+      this.add(mesh);
+      return { mesh, move };
+    });
+
+    const affectedTiles = new Set<Tile>();
+    moves.forEach(({ from, to }) => {
+      affectedTiles.add(from);
+      affectedTiles.add(to);
+    });
+    const originalOpacity = new Map<Tile, number>();
+    affectedTiles.forEach((tile) => {
+      const mat = tile.mesh.material as MeshBasicMaterial;
+      originalOpacity.set(tile, mat.opacity);
+      mat.opacity = 0.25;
+    });
+
+    const ease = (t: number) => t * t * (3 - 2 * t);
+    const start = performance.now();
+    const animate = (time: number) => {
+      const progress = Math.min((time - start) / duration, 1);
+      const eased = ease(progress);
+      clones.forEach(({ mesh, move }) => {
+        mesh.position.lerpVectors(move.from.mesh.position, move.to.mesh.position, eased);
+      });
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        clones.forEach(({ mesh }) => {
+          mesh.removeFromParent();
+        });
+        originalOpacity.forEach((value, tile) => {
+          const mat = tile.mesh.material as MeshBasicMaterial;
+          mat.opacity = value;
+          mat.needsUpdate = true;
+        });
+        this.shuffleAnimating = false;
+        onComplete();
+      }
+    };
+    requestAnimationFrame(animate);
+  }
+
+  private deriveShuffleMoves(states: TileModel[]): Array<{ from: Tile; to: Tile }> | null {
+    if (states.length !== this.tiles.length) return null;
+    const available = this.tiles.map((tile) => ({
+      tile,
+      signature: this.encodeTileState(tile),
+      used: false
+    }));
+    const moves: Array<{ from: Tile; to: Tile }> = [];
+    for (const state of states) {
+      const target = this.tileMap.get(state.id);
+      if (!target) return null;
+      const signature = this.encodeState(state);
+      const match = available.find((entry) => !entry.used && entry.signature === signature);
+      if (!match) return null;
+      match.used = true;
+      moves.push({ from: match.tile, to: target });
+    }
+    return moves;
+  }
+
+  private encodeTileState(tile: Tile): string {
+    return `${tile.letter}|${tile.hasGem ? 1 : 0}|${tile.multiplier}|${tile.wordMultiplier}`;
+  }
+
+  private encodeState(state: TileModel): string {
+    return `${state.letter}|${state.hasGem ? 1 : 0}|${state.multiplier}|${state.wordMultiplier}`;
   }
 
   private getLetterTexture(letter: string, state: TileState, hasGem: boolean, multiplier: Multiplier): Texture {

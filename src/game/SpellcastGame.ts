@@ -35,6 +35,7 @@ export interface MultiplayerController {
   applySwap(tileId: string, letter: string): void | Promise<void>;
   cancelSwap(): void | Promise<void>;
   updateSelection(tileIds: string[]): void | Promise<void>;
+  kickPlayer?(playerId: string): void | Promise<void>;
 }
 
 export class SpellcastGame {
@@ -389,6 +390,27 @@ export class SpellcastGame {
         spectateTag.className = "pill pill--spectator";
         spectateTag.textContent = "Spectator";
         header.append(spectateTag);
+      }
+
+      if (
+        this.isMultiplayer &&
+        this.isMyTurn() &&
+        this.players[this.currentPlayerIndex]?.isHost &&
+        player.id !== this.playerId &&
+        !player.isSpectator &&
+        this.multiplayer?.kickPlayer
+      ) {
+        const kickBtn = document.createElement("button");
+        kickBtn.className = "player__kick-icon";
+        kickBtn.title = `Kick ${player.name}`;
+        kickBtn.innerHTML = `<i class="fa-solid fa-user-slash"></i>`;
+        kickBtn.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          const confirmed = await this.showConfirmation(`Remove ${player.name} from the game?`);
+          if (!confirmed) return;
+          this.multiplayer?.kickPlayer?.(player.id);
+        });
+        header.append(kickBtn);
       }
 
       const meta = document.createElement("div");

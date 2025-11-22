@@ -78,3 +78,11 @@ export function leaveRoom(roomId: string, playerId: string, requesterId?: string
     body: JSON.stringify({ requesterId: requesterId ?? playerId })
   });
 }
+
+export function kickPlayer(
+  roomId: string,
+  playerId: string,
+  requesterId: string
+): Promise<void> {
+  return leaveRoom(roomId, playerId, requesterId);
+}
