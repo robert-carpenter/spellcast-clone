@@ -506,7 +506,9 @@ function ensurePlayerTurn(room: Room, playerId: string): boolean {
 }
 
 function loadDictionary(): Set<string> {
-  const filePath = path.resolve(__dirname, "../../src/game/dictionary.txt");
+  const sourcePath = path.resolve(__dirname, "../../src/game/dictionary.txt");
+  const distPath = path.resolve(__dirname, "../shared/game/dictionary.txt");
+  const filePath = fs.existsSync(sourcePath) ? sourcePath : distPath;
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     return new Set(
