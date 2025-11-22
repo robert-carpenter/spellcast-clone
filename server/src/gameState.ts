@@ -295,7 +295,7 @@ function createTiles(
 }
 
 function refreshTiles(game: GameState, tiles: TileModel[]) {
-  tiles.forEach((tile) => {
+  tiles.forEach((tile: TileModel) => {
     tile.letter = randomLetter();
     tile.hasGem = Math.random() < GEM_CHANCE;
     tile.multiplier = "none";
@@ -316,18 +316,18 @@ function assignMultipliers(game: GameState) {
 }
 
 function ensureLetterMultiplier(tiles: TileModel[]) {
-  const existing = tiles.find((tile) => tile.multiplier !== "none");
+  const existing = tiles.find((tile: TileModel) => tile.multiplier !== "none");
   if (existing) return;
-  const candidates = tiles.filter((tile) => tile.multiplier === "none");
+  const candidates = tiles.filter((tile: TileModel) => tile.multiplier === "none");
   if (!candidates.length) return;
   const target = candidates[Math.floor(Math.random() * candidates.length)];
   target.multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
 }
 
 function ensureWordMultiplier(tiles: TileModel[]) {
-  const existing = tiles.find((tile) => tile.wordMultiplier === "doubleWord");
+  const existing = tiles.find((tile: TileModel) => tile.wordMultiplier === "doubleWord");
   if (existing) return;
-  const candidates = tiles.filter((tile) => tile.wordMultiplier === "none");
+  const candidates = tiles.filter((tile: TileModel) => tile.wordMultiplier === "none");
   if (!candidates.length) return;
   const target = candidates[Math.floor(Math.random() * candidates.length)];
   target.wordMultiplier = "doubleWord";
@@ -387,7 +387,7 @@ function advanceTurn(room: Room) {
 }
 
 function refreshAllTiles(game: GameState) {
-  game.tiles.forEach((tile) => {
+  game.tiles.forEach((tile: TileModel) => {
     tile.letter = randomLetter();
     tile.hasGem = Math.random() < GEM_CHANCE;
     tile.multiplier = "none";
