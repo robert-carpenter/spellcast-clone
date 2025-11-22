@@ -517,7 +517,12 @@ function ensurePlayerTurn(room: Room, playerId: string): boolean {
 function loadDictionary(): Set<string> {
   const sourcePath = path.resolve(__dirname, "../../src/game/dictionary.txt");
   const distPath = path.resolve(__dirname, "../shared/game/dictionary.txt");
-  const filePath = fs.existsSync(sourcePath) ? sourcePath : distPath;
+  const rootDistPath = path.resolve(__dirname, "./shared/game/dictionary.txt");
+  const filePath = [sourcePath, distPath, rootDistPath].find((candidate) => fs.existsSync(candidate));
+  if (!filePath) {
+    console.error("Dictionary file not found in expected locations.");
+    return new Set();
+  }
   try {
     const raw = fs.readFileSync(filePath, "utf8");
     return new Set(
