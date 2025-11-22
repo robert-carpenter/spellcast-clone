@@ -20,7 +20,7 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 
 # Copy server build output and install prod deps
-COPY --from=builder /app/server/dist ./server/dist
+COPY --from=builder /app/server/dist/ ./server/dist/
 COPY --from=builder /app/server/package*.json ./server/
 WORKDIR /app/server
 RUN npm install --omit=dev
@@ -28,4 +28,4 @@ RUN npm install --omit=dev
 ENV NODE_ENV=production
 ENV PORT=3000
 
-CMD ["node", "dist/src/server.js"]
+CMD ["node", "dist/server.js"]
