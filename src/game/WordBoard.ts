@@ -69,7 +69,10 @@ export class WordBoard extends Group {
   private wordBadgeMaterial?: MeshBasicMaterial;
   private multipliersEnabled = true;
   private swapMode = false;
-  private wordMultiplierEnabled = true;
+  private wordMultiplierEnabled = false;
+  private wordMultiplierControl: "local" | "sync" = "local";
+  private currentWordMultiplierRound = 1;
+  private roundWordTileId?: string;
   private letterBag = new Map<string, number>();
   private bagTotal = 0;
   private shuffleAnimating = false;
@@ -241,7 +244,8 @@ export class WordBoard extends Group {
     const payload = this.tiles.map((tile) => ({
       sourceTile: tile,
       letter: tile.letter,
-      bagTracked: tile.bagTracked
+      bagTracked: tile.bagTracked,
+      multiplier: tile.multiplier
     }));
 
     this.shuffleArray(payload);
@@ -256,11 +260,12 @@ export class WordBoard extends Group {
         const data = payload[index];
         tile.letter = data.letter;
         tile.bagTracked = data.bagTracked;
+        tile.multiplier = data.multiplier;
         this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
         this.updateMultiplierBadge(tile);
       });
-      if (this.wordMultiplierEnabled) {
-        this.reassignWordMultiplier();
+      if (this.wordMultiplierControl === "local") {
+        this.applyRoundWordMultiplier();
       } else {
         this.tiles.forEach((tile) => this.updateWordMultiplierBadge(tile));
       }
@@ -296,21 +301,12 @@ export class WordBoard extends Group {
     this.tiles.forEach((tile) => this.updateSwapTint(tile));
   }
 
-  public refreshTiles(tiles: Tile[], resetWordMultiplier = false) {
-    let consumedLetterMultiplier = false;
-    let consumedWordMultiplier = false;
-
+  public refreshTiles(tiles: Tile[], _resetWordMultiplier = false) {
     tiles.forEach((tile) => {
-      if (tile.multiplier !== "none") consumedLetterMultiplier = true;
-      if (tile.wordMultiplier === "doubleWord") consumedWordMultiplier = true;
-
       this.releaseTileLetter(tile);
       this.assignLetterFromBag(tile);
       tile.hasGem = false;
       tile.multiplier = "none";
-      if (resetWordMultiplier || tile.wordMultiplier === "doubleWord") {
-        tile.wordMultiplier = "none";
-      }
 
       this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
       this.updateMultiplierBadge(tile);
@@ -319,13 +315,8 @@ export class WordBoard extends Group {
     });
 
     this.ensureMultiplier(tiles);
-    if (
-      this.wordMultiplierEnabled &&
-      (resetWordMultiplier ||
-        consumedWordMultiplier ||
-        !this.tiles.some((t) => t.wordMultiplier === "doubleWord"))
-    ) {
-      this.ensureWordMultiplier(tiles);
+    if (this.wordMultiplierControl === "local") {
+      this.applyRoundWordMultiplier();
     }
 
     this.ensureGemQuota();
@@ -346,16 +337,42 @@ export class WordBoard extends Group {
     }
   }
 
-  public setWordMultiplierEnabled(enabled: boolean) {
+  public setWordMultiplierEnabled(
+    enabled: boolean,
+    options?: { round?: number; mode?: "local" | "sync"; tileId?: string }
+  ) {
+    if (options?.mode) {
+      this.wordMultiplierControl = options.mode;
+    }
+    const roundValue = options?.round ?? this.currentWordMultiplierRound;
+    const roundChanged = roundValue !== this.currentWordMultiplierRound;
+    this.currentWordMultiplierRound = roundValue;
+    const previousState = this.wordMultiplierEnabled;
     this.wordMultiplierEnabled = enabled;
+
+    if (this.wordMultiplierControl === "sync") {
+      if (!enabled) {
+        this.roundWordTileId = undefined;
+      } else if (typeof options?.tileId === "string") {
+        this.roundWordTileId = options.tileId;
+      }
+      return;
+    }
+
     if (!enabled) {
+      this.roundWordTileId = undefined;
       this.tiles.forEach((tile) => {
         tile.wordMultiplier = "none";
         this.updateWordMultiplierBadge(tile);
       });
-    } else {
-      this.ensureWordMultiplier();
+      return;
     }
+
+    const shouldSelectNew = roundChanged || !previousState || !this.roundWordTileId;
+    if (shouldSelectNew) {
+      this.roundWordTileId = this.pickRoundWordTile(roundChanged || !previousState);
+    }
+    this.applyRoundWordMultiplier();
   }
 
   public width(): number {
@@ -412,36 +429,28 @@ export class WordBoard extends Group {
     this.updateMultiplierBadge(target);
   }
 
-  private ensureWordMultiplier(exclude: Tile[] = []) {
-    if (!this.wordMultiplierEnabled) return;
-    const existing = this.tiles.find((tile) => tile.wordMultiplier === "doubleWord");
-    if (existing) return;
-
-    const excludedSet = new Set(exclude);
-    let candidates = this.tiles.filter(
-      (tile) => tile.wordMultiplier === "none" && !excludedSet.has(tile)
-    );
-    if (!candidates.length) {
-      candidates = this.tiles.filter((tile) => tile.wordMultiplier === "none");
+  private pickRoundWordTile(forceNew = false): string | undefined {
+    if (!this.tiles.length) return undefined;
+    let candidates = [...this.tiles];
+    if (forceNew && this.roundWordTileId && candidates.length > 1) {
+      candidates = candidates.filter((tile) => tile.id !== this.roundWordTileId);
+      if (!candidates.length) {
+        candidates = [...this.tiles];
+      }
     }
-    if (!candidates.length) return;
-
     const target = candidates[Math.floor(Math.random() * candidates.length)];
-    target.wordMultiplier = "doubleWord";
-    this.updateWordMultiplierBadge(target);
+    return target?.id;
   }
 
-  private reassignWordMultiplier() {
-    const current = this.tiles.find((tile) => tile.wordMultiplier === "doubleWord");
-    let candidates = this.tiles.filter((tile) => tile !== current);
-    if (!candidates.length) {
-      candidates = [...this.tiles];
-    }
-    if (!candidates.length) return;
-    const target = candidates[Math.floor(Math.random() * candidates.length)];
+  private applyRoundWordMultiplier() {
+    if (this.wordMultiplierControl === "sync") return;
+    const targetId = this.wordMultiplierEnabled ? this.roundWordTileId : undefined;
     this.tiles.forEach((tile) => {
-      tile.wordMultiplier = tile === target ? "doubleWord" : "none";
-      this.updateWordMultiplierBadge(tile);
+      const next = targetId && tile.id === targetId ? "doubleWord" : "none";
+      if (tile.wordMultiplier !== next) {
+        tile.wordMultiplier = next;
+        this.updateWordMultiplierBadge(tile);
+      }
     });
   }
 
@@ -453,6 +462,9 @@ export class WordBoard extends Group {
       }
     });
     this.ensureGemQuota(target);
+    if (this.wordMultiplierControl === "local") {
+      this.applyRoundWordMultiplier();
+    }
   }
 
   private ensureGemQuota(target = GEM_TARGET) {
@@ -500,6 +512,9 @@ export class WordBoard extends Group {
     this.updateMultiplierBadge(tile);
     this.updateWordMultiplierBadge(tile);
     this.updateSwapTint(tile);
+    if (this.wordMultiplierControl === "local") {
+      this.applyRoundWordMultiplier();
+    }
   }
 
   private shuffleArray<T>(items: T[]): void {
@@ -754,12 +769,8 @@ export class WordBoard extends Group {
 
     const specialIndex = Math.floor(Math.random() * total);
     const specialType: Multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
-    const wordIndex = this.wordMultiplierEnabled ? Math.floor(Math.random() * total) : -1;
-
     tilesData.forEach((data, index) => {
       const multiplier = index === specialIndex ? specialType : "none";
-      const wordMultiplier: WordMultiplier =
-        this.wordMultiplierEnabled && index === wordIndex ? "doubleWord" : "none";
       const material = new MeshBasicMaterial({
         color: "#ffffff",
         map: this.getLetterTexture(data.letter, "base", data.hasGem, multiplier),
@@ -778,7 +789,7 @@ export class WordBoard extends Group {
         state: "base",
         hasGem: data.hasGem,
         multiplier,
-        wordMultiplier,
+        wordMultiplier: "none",
         bagTracked: Boolean(data.bagTracked)
       };
       mesh.userData.tile = tile;
@@ -793,7 +804,9 @@ export class WordBoard extends Group {
     this.assignRandomGems();
     this.ensureMinimumVowels();
     this.ensureMultiplier();
-    this.ensureWordMultiplier();
+    if (this.wordMultiplierControl === "local") {
+      this.applyRoundWordMultiplier();
+    }
   }
 
   private normalizeLetter(letter: string): string {
@@ -953,7 +966,10 @@ export class WordBoard extends Group {
     // Draw letter value bottom right
     const valueColor =
       state === "selected" ? "rgba(245,249,255,0.95)" : "rgba(0,0,0,0.78)";
-    const value = LETTER_VALUES[letter.toLowerCase()] ?? 0;
+    const baseValue = LETTER_VALUES[letter.toLowerCase()] ?? 0;
+    const multiplierValue =
+      multiplier === "tripleLetter" ? 3 : multiplier === "doubleLetter" ? 2 : 1;
+    const value = baseValue * multiplierValue;
     if (value) {
       ctx.fillStyle = valueColor;
       ctx.font = "bold 46px 'Segoe UI', sans-serif";

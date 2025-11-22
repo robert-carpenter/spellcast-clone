@@ -15,6 +15,7 @@ export interface RoomDTO {
   players: RoomPlayerDTO[];
   hostId: string;
   status: "lobby" | "in-progress";
+  rounds: number;
   game?: GameSnapshot;
 }
 
@@ -77,6 +78,17 @@ export function startRoom(roomId: string, playerId: string): Promise<{ room: Roo
   return request(`/api/rooms/${encodeURIComponent(roomId)}/start`, {
     method: "POST",
     body: JSON.stringify({ playerId })
+  });
+}
+
+export function updateRoomRounds(
+  roomId: string,
+  playerId: string,
+  rounds: number
+): Promise<{ room: RoomDTO }> {
+  return request(`/api/rooms/${encodeURIComponent(roomId)}/settings`, {
+    method: "PATCH",
+    body: JSON.stringify({ playerId, rounds })
   });
 }
 

@@ -29,6 +29,7 @@ export interface GameSnapshot {
   currentPlayerIndex: number;
   multipliersEnabled: boolean;
   wordMultiplierEnabled: boolean;
+  roundWordTileId?: string;
   swapModePlayerId?: string;
   lastSubmission?: LastSubmission;
   completed: boolean;

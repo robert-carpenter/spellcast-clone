@@ -825,6 +825,61 @@ body {
   font-size: 14px;
 }
 
+.lobby-rounds {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lobby-rounds__label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(223, 233, 255, 0.75);
+}
+
+.lobby-rounds__options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lobby-rounds__option {
+  cursor: pointer;
+}
+
+.lobby-rounds__option input {
+  display: none;
+}
+
+.lobby-rounds__option span {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.05);
+  color: #dfe9ff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.lobby-rounds__option input:checked + span {
+  background: rgba(122, 215, 255, 0.25);
+  border-color: rgba(122, 215, 255, 0.6);
+  color: #072035;
+}
+
+.lobby-rounds--disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.lobby-rounds--busy span {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
 .lobby-actions {
   display: flex;
   align-items: center;

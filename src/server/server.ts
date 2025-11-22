@@ -26,6 +26,8 @@ interface BackendOptions {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const DEFAULT_ROUND_COUNT = 5;
+const ROUND_OPTIONS = [3, 5];
 const rooms = new Map<string, Room>();
 const playerPresence = new Map<
   string,
@@ -105,7 +107,8 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
       createdAt: Date.now(),
       hostId: host.id,
       players: [host],
-      status: "lobby"
+      status: "lobby",
+      rounds: DEFAULT_ROUND_COUNT
     };
     rooms.set(roomId, room);
 
@@ -190,7 +193,33 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
     }
     room.status = "in-progress";
     clearGameReset(roomId);
-    startNewGame(room);
+    startNewGame(room, room.rounds);
+    broadcastRoom(roomId);
+    res.json({ room });
+  });
+
+  app.patch("/api/rooms/:roomId/settings", (req: Request, res: Response) => {
+    log("PATCH /api/rooms/:roomId/settings", req.params.roomId, req.body);
+    const roomId = req.params.roomId.toUpperCase();
+    const room = rooms.get(roomId);
+    if (!room) {
+      return res.status(404).json({ error: "Room not found" });
+    }
+    const { playerId, rounds } = req.body ?? {};
+    if (typeof playerId !== "string") {
+      return res.status(400).json({ error: "playerId is required" });
+    }
+    if (room.hostId !== playerId) {
+      return res.status(403).json({ error: "Only the host can update settings" });
+    }
+    if (room.status !== "lobby") {
+      return res.status(400).json({ error: "Cannot change settings after the game starts" });
+    }
+    const parsedRounds = Number(rounds);
+    if (!ROUND_OPTIONS.includes(parsedRounds)) {
+      return res.status(400).json({ error: "Invalid round selection" });
+    }
+    room.rounds = parsedRounds;
     broadcastRoom(roomId);
     res.json({ room });
   });

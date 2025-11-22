@@ -26,6 +26,7 @@ export interface InitialRoomState {
   playerId: string;
   players: Player[];
   game?: GameSnapshot;
+  rounds?: number;
 }
 
 export interface MultiplayerController {
@@ -40,7 +41,7 @@ export interface MultiplayerController {
 
 export class SpellcastGame {
   private frustumSize = 16;
-  private readonly totalRounds = 5;
+  private totalRounds = 5;
   private container: HTMLElement;
   private boardArea: HTMLDivElement;
   private boardViewport: HTMLDivElement;
@@ -103,6 +104,11 @@ export class SpellcastGame {
       }));
       this.roomId = roomState.roomId;
       this.playerId = roomState.playerId;
+      if (roomState.game?.totalRounds) {
+        this.totalRounds = roomState.game.totalRounds;
+      } else if (roomState.rounds) {
+        this.totalRounds = roomState.rounds;
+      }
     } else {
       this.players = [
         {
@@ -172,7 +178,10 @@ export class SpellcastGame {
       this.pendingSnapshot = roomState.game;
     } else {
       this.board.setMultipliersEnabled(this.round > 1);
-      this.board.setWordMultiplierEnabled(this.round > 1);
+      this.board.setWordMultiplierEnabled(this.round > 1, {
+        mode: this.isMultiplayer ? "sync" : "local",
+        round: this.round
+      });
     }
 
     const powerUi = this.createPowerPanel();
@@ -645,7 +654,10 @@ export class SpellcastGame {
         this.round += 1;
         this.updateRoundLabel();
         this.board.setMultipliersEnabled(this.round > 1);
-        this.board.setWordMultiplierEnabled(this.round > 1);
+        this.board.setWordMultiplierEnabled(this.round > 1, {
+          mode: this.isMultiplayer ? "sync" : "local",
+          round: this.round
+        });
         this.board.refreshTiles(this.board.allTiles(), true);
         this.board.clearSelection();
         this.updateWord([]);
@@ -960,7 +972,10 @@ export class SpellcastGame {
     });
     this.lastActivePlayerId = this.players[0]?.id;
     this.board.setMultipliersEnabled(false);
-    this.board.setWordMultiplierEnabled(false);
+    this.board.setWordMultiplierEnabled(false, {
+      mode: this.isMultiplayer ? "sync" : "local",
+      round: this.round
+    });
     this.board.refreshTiles(this.board.allTiles(), true);
     this.board.clearSelection();
     this.updateWord([]);
@@ -1157,13 +1172,20 @@ export class SpellcastGame {
   }
 
   public applyGameSnapshot(snapshot: GameSnapshot) {
+    if (snapshot.totalRounds && snapshot.totalRounds !== this.totalRounds) {
+      this.totalRounds = snapshot.totalRounds;
+    }
     this.board.applyExternalState(snapshot.tiles);
     const previousId = this.players[this.currentPlayerIndex]?.id;
     this.round = snapshot.round;
     this.currentPlayerIndex = snapshot.currentPlayerIndex;
     this.onTurnChanged(this.players[this.currentPlayerIndex]?.id, previousId);
     this.board.setMultipliersEnabled(snapshot.multipliersEnabled);
-    this.board.setWordMultiplierEnabled(snapshot.wordMultiplierEnabled);
+    this.board.setWordMultiplierEnabled(snapshot.wordMultiplierEnabled, {
+      mode: "sync",
+      round: snapshot.round,
+      tileId: snapshot.roundWordTileId
+    });
     this.updateRoundLabel();
     this.board.setSwapMode(snapshot.swapModePlayerId === this.playerId);
     this.swapMode = snapshot.swapModePlayerId === this.playerId;

@@ -6,7 +6,7 @@ const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const TRIPLE_CHANCE = 0.12;
 const BOARD_COLS = 5;
 const BOARD_ROWS = 5;
-const TOTAL_ROUNDS = 5;
+const DEFAULT_ROUND_COUNT = 5;
 const LONG_WORD_THRESHOLD = 6;
 const LONG_WORD_BONUS = 10;
 
@@ -74,17 +74,18 @@ export interface ActionResult {
   error?: string;
 }
 
-export function createInitialGameState(): GameState {
+export function createInitialGameState(totalRounds = DEFAULT_ROUND_COUNT): GameState {
   const tiles = createTiles(false, false);
   return {
     cols: BOARD_COLS,
     rows: BOARD_ROWS,
     tiles,
     round: 1,
-    totalRounds: TOTAL_ROUNDS,
+    totalRounds,
     currentPlayerIndex: 0,
     multipliersEnabled: false,
     wordMultiplierEnabled: false,
+    roundWordTileId: undefined,
     swapModePlayerId: undefined,
     lastSubmission: undefined,
     completed: false,
@@ -93,8 +94,8 @@ export function createInitialGameState(): GameState {
   };
 }
 
-export function startNewGame(room: Room) {
-  room.game = createInitialGameState();
+export function startNewGame(room: Room, totalRounds = room.rounds ?? DEFAULT_ROUND_COUNT) {
+  room.game = createInitialGameState(totalRounds);
   room.players.forEach((player: Player) => {
     player.score = 0;
     player.gems = 3;
@@ -192,14 +193,17 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
   if (player.isSpectator) return { success: false, error: "Spectators cannot use Shuffle." };
   if (player.gems < 1) return { success: false, error: "Need 1 gem to shuffle." };
   player.gems -= 1;
-  const letters = game.tiles.map((tile: TileModel) => tile.letter);
-  shuffleArray(letters);
+  const payload = game.tiles.map((tile: TileModel) => ({
+    letter: tile.letter,
+    multiplier: tile.multiplier
+  }));
+  shuffleArray(payload);
   game.tiles.forEach((tile: TileModel, index: number) => {
-    tile.letter = letters[index];
+    const data = payload[index];
+    tile.letter = data.letter;
+    tile.multiplier = data.multiplier;
   });
-  if (game.wordMultiplierEnabled) {
-    moveWordMultiplier(game.tiles);
-  }
+  applyRoundWordTile(game);
   ensureMinimumVowels(game.tiles);
   return { success: true };
 }
@@ -293,21 +297,15 @@ function refreshTiles(game: GameState, tiles: TileModel[]) {
     tile.letter = randomLetter();
     tile.hasGem = false;
     tile.multiplier = "none";
-    tile.wordMultiplier = game.wordMultiplierEnabled ? tile.wordMultiplier : "none";
-    if (!game.wordMultiplierEnabled) {
-      tile.wordMultiplier = "none";
-    }
   });
   topUpGems(game.tiles);
+  applyRoundWordTile(game);
   ensureMinimumVowels(game.tiles);
 }
 
 function assignMultipliers(game: GameState) {
   if (game.multipliersEnabled) {
     ensureLetterMultiplier(game.tiles);
-  }
-  if (game.wordMultiplierEnabled) {
-    ensureWordMultiplier(game.tiles);
   }
 }
 
@@ -318,28 +316,6 @@ function ensureLetterMultiplier(tiles: TileModel[]) {
   if (!candidates.length) return;
   const target = candidates[Math.floor(Math.random() * candidates.length)];
   target.multiplier = Math.random() < TRIPLE_CHANCE ? "tripleLetter" : "doubleLetter";
-}
-
-function ensureWordMultiplier(tiles: TileModel[]) {
-  const existing = tiles.find((tile: TileModel) => tile.wordMultiplier === "doubleWord");
-  if (existing) return;
-  const candidates = tiles.filter((tile: TileModel) => tile.wordMultiplier === "none");
-  if (!candidates.length) return;
-  const target = candidates[Math.floor(Math.random() * candidates.length)];
-  target.wordMultiplier = "doubleWord";
-}
-
-function moveWordMultiplier(tiles: TileModel[]) {
-  if (!tiles.length) return;
-  const currentIndex = tiles.findIndex((tile) => tile.wordMultiplier === "doubleWord");
-  let candidates = tiles.filter((_, index) => index !== currentIndex);
-  if (!candidates.length) {
-    candidates = [...tiles];
-  }
-  const target = candidates[Math.floor(Math.random() * candidates.length)];
-  tiles.forEach((tile) => {
-    tile.wordMultiplier = tile === target ? "doubleWord" : "none";
-  });
 }
 
 function isValidSelection(tiles: TileModel[]): boolean {
@@ -382,12 +358,18 @@ function advanceTurn(room: Room) {
   if (wrapped) {
     if (game.round < game.totalRounds) {
       game.round += 1;
-      if (game.round > 1) {
-        game.multipliersEnabled = true;
-        game.wordMultiplierEnabled = true;
+      game.multipliersEnabled = game.round > 1;
+      game.wordMultiplierEnabled = game.round >= 2;
+      if (!game.wordMultiplierEnabled) {
+        game.roundWordTileId = undefined;
       }
       refreshAllTiles(game);
       assignMultipliers(game);
+      if (game.wordMultiplierEnabled) {
+        selectRoundWordTile(game, true);
+      } else {
+        applyRoundWordTile(game);
+      }
     } else {
       game.completed = true;
       determineWinner(room);
@@ -403,6 +385,7 @@ function refreshAllTiles(game: GameState) {
     tile.wordMultiplier = "none";
   });
   assignRandomGems(game.tiles);
+  applyRoundWordTile(game);
   ensureMinimumVowels(game.tiles);
 }
 
@@ -465,6 +448,33 @@ function shuffleArray<T>(items: T[]) {
     const j = Math.floor(Math.random() * (i + 1));
     [items[i], items[j]] = [items[j], items[i]];
   }
+}
+
+function selectRoundWordTile(game: GameState, forceNew = false) {
+  if (!game.wordMultiplierEnabled) {
+    game.roundWordTileId = undefined;
+    applyRoundWordTile(game);
+    return;
+  }
+  const tiles = game.tiles;
+  if (!tiles.length) return;
+  let candidates = [...tiles];
+  if (forceNew && game.roundWordTileId && candidates.length > 1) {
+    candidates = candidates.filter((tile) => tile.id !== game.roundWordTileId);
+    if (!candidates.length) {
+      candidates = [...tiles];
+    }
+  }
+  const target = candidates[Math.floor(Math.random() * candidates.length)];
+  game.roundWordTileId = target.id;
+  applyRoundWordTile(game);
+}
+
+function applyRoundWordTile(game: GameState) {
+  const targetId = game.wordMultiplierEnabled ? game.roundWordTileId : undefined;
+  game.tiles.forEach((tile) => {
+    tile.wordMultiplier = targetId && tile.id === targetId ? "doubleWord" : "none";
+  });
 }
 
 function randomLetter(): string {

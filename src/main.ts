@@ -9,7 +9,8 @@ import {
   getRoom,
   CreateRoomResponse,
   JoinRoomResponse,
-  RoomDTO
+  RoomDTO,
+  updateRoomRounds
 } from "./network/api";
 import { connectRoomSocket, RoomSocket } from "./network/socket";
 import { soundManager } from "./audio/SoundManager";
@@ -67,6 +68,21 @@ const landing = createLandingOverlay({
 });
 landing.setKickHandler((playerId) => {
   handleKickPlayer(playerId).catch((err) => console.error(err));
+});
+
+landing.onRoundsChange((rounds) => {
+  if (!lobbyContext || !lobbyContext.isHost) return;
+  const resolved = Number(rounds);
+  if (!Number.isFinite(resolved)) return;
+  if (latestRoomSnapshot?.rounds === resolved) return;
+  landing.setRoundsBusy(true);
+  updateRoomRounds(lobbyContext.roomId, lobbyContext.playerId, resolved)
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : "Unable to update rounds.";
+      landing.setMessage(message, "error");
+      landing.setRoundSelection(latestRoomSnapshot?.rounds ?? 5);
+    })
+    .finally(() => landing.setRoundsBusy(false));
 });
 
 const storedSession = loadStoredSession();
@@ -404,7 +420,9 @@ function renderLobby(room: RoomDTO) {
     canStart,
     isHost,
     status: room.status,
-    minPlayersMet: activeCount >= 1
+    minPlayersMet: activeCount >= 1,
+    rounds: room.rounds ?? 5,
+    canEditRounds: isHost && room.status === "lobby"
   });
 }
 
@@ -432,7 +450,8 @@ function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
       connected: player.connected,
       isSpectator: player.isSpectator ?? false
     })),
-    game: room.game
+    game: room.game,
+    rounds: room.rounds
   };
 }
 
@@ -628,6 +647,8 @@ interface LobbyRenderData {
   isHost: boolean;
   status: RoomStatus;
   minPlayersMet: boolean;
+  rounds: number;
+  canEditRounds: boolean;
 }
 
 function createLandingOverlay(options: LandingOverlayOptions) {
@@ -862,6 +883,29 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const lobbyStatusText = document.createElement("p");
   lobbyStatusText.className = "lobby-status";
 
+  const lobbyRounds = document.createElement("div");
+  lobbyRounds.className = "lobby-rounds";
+  const lobbyRoundsLabel = document.createElement("span");
+  lobbyRoundsLabel.className = "lobby-rounds__label";
+  lobbyRoundsLabel.textContent = "Rounds";
+  const lobbyRoundsOptions = document.createElement("div");
+  lobbyRoundsOptions.className = "lobby-rounds__options";
+  const roundInputs: HTMLInputElement[] = [];
+  [3, 5].forEach((value) => {
+    const option = document.createElement("label");
+    option.className = "lobby-rounds__option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "lobby-rounds";
+    input.value = String(value);
+    const text = document.createElement("span");
+    text.textContent = `${value} Rounds`;
+    option.append(input, text);
+    lobbyRoundsOptions.append(option);
+    roundInputs.push(input);
+  });
+  lobbyRounds.append(lobbyRoundsLabel, lobbyRoundsOptions);
+
   const lobbyActions = document.createElement("div");
   lobbyActions.className = "lobby-actions";
   const lobbyStartBtn = document.createElement("button");
@@ -875,6 +919,46 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   lobbyLeaveBtn.append(lobbyLeaveIcon);
   lobbyActions.append(lobbyStartBtn, lobbyLeaveBtn);
 
+  let roundsChangeHandler: ((rounds: number) => void) | null = null;
+  let roundsEditable = false;
+  let roundsBusy = false;
+  const syncRoundInputs = () => {
+    const disabled = !roundsEditable || roundsBusy;
+    roundInputs.forEach((input) => {
+      input.disabled = disabled;
+    });
+    lobbyRounds.classList.toggle("lobby-rounds--disabled", disabled);
+    lobbyRounds.classList.toggle("lobby-rounds--busy", roundsBusy);
+  };
+  const setRoundsSelection = (value: number) => {
+    let matched = false;
+    roundInputs.forEach((input) => {
+      const match = Number(input.value) === value;
+      input.checked = match;
+      if (match) matched = true;
+    });
+    if (!matched && roundInputs.length) {
+      roundInputs[roundInputs.length - 1].checked = true;
+    }
+  };
+  const setRoundsEditable = (state: boolean) => {
+    roundsEditable = state;
+    syncRoundInputs();
+  };
+  const setRoundsBusyState = (state: boolean) => {
+    roundsBusy = state;
+    syncRoundInputs();
+  };
+  roundInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      const value = Number(input.value);
+      if (!Number.isFinite(value)) return;
+      roundsChangeHandler?.(value);
+    });
+  });
+  setRoundsSelection(5);
+
   lobbyView.append(
     lobbyHeader,
     lobbyShareWrap,
@@ -882,6 +966,7 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     lobbyPlayersHeader,
     lobbyPlayersList,
     lobbyStatusText,
+    lobbyRounds,
     lobbyActions
   );
   registerView("lobby", lobbyView);
@@ -961,6 +1046,15 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       lobbyStartBtn.disabled = state;
       lobbyStartBtn.dataset.loading = state ? "true" : "false";
     },
+    setRoundSelection(value: number) {
+      setRoundsSelection(value);
+    },
+    setRoundsBusy(state: boolean) {
+      setRoundsBusyState(state);
+    },
+    onRoundsChange(handler: (rounds: number) => void) {
+      roundsChangeHandler = handler;
+    },
     updateLobby(data: LobbyRenderData) {
       lobbyRoomCode.textContent = `Room ${data.roomCode}`;
       shareInput.value = data.shareUrl;
@@ -1024,6 +1118,8 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       lobbyStartBtn.textContent = "Start Game";
       lobbyStartBtn.disabled = !data.canStart;
       lobbyStartBtn.style.display = data.isHost ? "inline-flex" : "none";
+      setRoundsSelection(data.rounds);
+      setRoundsEditable(data.canEditRounds);
       if (!data.isHost) {
         lobbyStatusText.textContent = "Waiting for the host to start the game.";
       } else if (!data.minPlayersMet) {

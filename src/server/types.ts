@@ -22,5 +22,6 @@ export interface Room {
   hostId: string;
   players: Player[];
   status: "lobby" | "in-progress";
+  rounds: number;
   game?: GameState;
 }
