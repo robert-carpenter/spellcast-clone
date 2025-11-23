@@ -36,6 +36,8 @@ body {
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, rgba(10, 12, 25, 0.65), rgba(7, 9, 18, 0.85)),
+    url("./assets/wizard_background.png") center/cover no-repeat fixed;
 }
 
 #app {
@@ -55,6 +57,14 @@ body {
   background: linear-gradient(120deg, #0e1322, #0a0f1c 50%, #0d1424);
   padding: 12px;
   box-sizing: border-box;
+}
+
+body:not(.in-game) #app {
+  display: none !important;
+}
+
+body.in-game #app {
+  display: flex;
 }
 
 .board-area {
@@ -138,12 +148,14 @@ body {
 .status-indicator--online {
   background: #3fef9b;
   box-shadow: 0 0 8px rgba(63, 239, 155, 0.6);
+  margin-top: 4px;
 }
 
 .status-indicator--offline {
   background: #ff6b6b;
   box-shadow: 0 0 8px rgba(255, 107, 107, 0.5);
   opacity: 0.85;
+  margin-top: 4px;
 }
 
 .power-panel {
@@ -235,6 +247,7 @@ body {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   top: 100px;
   z-index: 2;
+  min-width: 240px;
 }
 
 .word-box--valid {
@@ -253,7 +266,7 @@ body {
   background: rgba(2, 4, 10, 0.7);
   display: grid;
   place-items: center;
-  z-index: 999;
+  z-index: 20000;
 }
 
 .modal {
@@ -324,7 +337,7 @@ body {
 }
 
 .sidebar {
-  flex: 0 0 260px;
+  flex: 0 0 300px;
   background: rgba(10, 15, 26, 0.85);
   border-radius: 10px;
   padding: 14px 12px;
@@ -452,6 +465,7 @@ body {
 }
 
 .player {
+  position: relative;
   background: rgba(20, 27, 44, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 10px;
@@ -459,14 +473,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 70px;
 }
 
 .player__nameRow {
   display: flex;
   align-items: center;
-  gap: 8px;
   position: relative;
-  padding-right: 22px;
+  padding-right: 120px;
   width: 100%;
 }
 
@@ -474,12 +488,63 @@ body {
   flex: 1;
 }
 
+.player__actions {
+  position: absolute;
+  top: 0px;
+  right: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.player__kick-btn {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffb0b0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  z-index: 2;
+}
+
+.player__kick-btn:hover {
+  background: rgba(255, 107, 107, 0.2);
+  border-color: rgba(255, 107, 107, 0.6);
+  color: #ffe6e6;
+}
+
+.player__skip-btn {
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  border: 1px solid rgba(122, 215, 255, 0.4);
+  background: rgba(122, 215, 255, 0.15);
+  color: #dff4ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  z-index: 2;
+}
+
+.player__skip-btn:hover {
+  background: rgba(122, 215, 255, 0.25);
+  border-color: rgba(122, 215, 255, 0.6);
+  color: #f8fdff;
+}
+
 .player__turnBadge {
   position: absolute;
-  top: -4px;
+  top: -2px;
   right: -4px;
-  width: 20px;
-  height: 20px;
+  width: 25px;
+  height: 25px;
   border-radius: 50%;
   background: rgba(122, 215, 255, 0.3);
   border: 1px solid rgba(122, 215, 255, 0.6);
@@ -499,12 +564,43 @@ body {
 .player__name {
   font-weight: 700;
   letter-spacing: 0.02em;
+  margin-top: 2px;
 }
 
 .player__meta {
+  position: absolute;
+  top: 10px;
+  right: 52px;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.player__metaRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.player__lastWord {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 12px;
+  color: #c9d9ff;
+  opacity: 0.9;
+  text-align: left;
+}
+
+.pill--turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(122, 215, 255, 0.2);
+  border-color: rgba(122, 215, 255, 0.6);
+  color: #dff4ff;
 }
 
 .pill {
@@ -560,7 +656,6 @@ body {
 .landing-overlay {
   position: fixed;
   inset: 0;
-  background: radial-gradient(circle at 30% 20%, rgba(22, 28, 46, 0.95), rgba(6, 9, 18, 0.98));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -586,10 +681,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-
-.landing-panel--stacked {
   max-height: 90vh;
+  overflow: auto;
 }
 
 .landing-panel__label {
@@ -650,6 +743,20 @@ body {
 .landing-view[hidden] {
   display: none;
 }
+
+@media (max-height: 760px) {
+  .landing-panel {
+    transform: scale(0.9);
+    transform-origin: top center;
+  }
+}
+
+@media (max-height: 660px) {
+  .landing-panel {
+    transform: scale(0.82);
+  }
+}
+
 
 .landing-view__menu {
   text-align: center;

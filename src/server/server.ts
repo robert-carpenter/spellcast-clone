@@ -12,6 +12,7 @@ import {
   applySwap,
   cancelSwap,
   advanceRound,
+  advanceTurn,
   requestSwapMode,
   shuffleBoard,
   startNewGame,
@@ -383,6 +384,31 @@ function registerSocketHandlers(io: SocketIOServer) {
       socket.to(roomCode).emit("game:selection", { playerId, tileIds });
     });
 
+    socket.on("game:skip", (payload: { playerId?: string }) => {
+      log("game:skip", playerId, payload);
+      const currentRoom = rooms.get(roomCode);
+      if (!currentRoom) return;
+      if (currentRoom.hostId !== playerId) {
+        return socket.emit("game:error", { message: "Only the host can skip turns." });
+      }
+      if (!currentRoom.game || currentRoom.status !== "in-progress") {
+        return socket.emit("game:error", { message: "No active game to skip." });
+      }
+      const targetId = typeof payload?.playerId === "string" ? payload.playerId : undefined;
+      const currentPlayer = currentRoom.players[currentRoom.game.currentPlayerIndex];
+      if (!currentPlayer || (targetId && targetId !== currentPlayer.id)) {
+        return socket.emit("game:error", { message: "Player is not currently taking a turn." });
+      }
+      advanceTurn(currentRoom);
+      if (currentRoom.game && currentPlayer) {
+        addLogEntry(
+          currentRoom.game,
+          `Round ${currentRoom.game.round}: ${currentPlayer.name}'s turn was skipped by the host.`
+        );
+      }
+      broadcastRoom(roomCode);
+    });
+
     socket.on("disconnect", () => {
       log("socket disconnected", socket.id);
       handleSocketDisconnect(socket.id);
@@ -484,8 +510,12 @@ function forceRemovePlayer(roomId: string, playerId: string): boolean {
   const presence = playerPresence.get(playerId);
   if (presence) {
     presence.sockets.forEach((socketId) => {
+      const sock = activeIo?.sockets.sockets.get(socketId);
+      if (sock) {
+        sock.emit("room:kicked", { roomId });
+      }
       socketLookup.delete(socketId);
-      activeIo?.sockets.sockets.get(socketId)?.disconnect(true);
+      sock?.disconnect(true);
     });
     if (presence.timeout) {
       clearTimeout(presence.timeout);

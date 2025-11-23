@@ -60,6 +60,8 @@ const STORAGE_KEYS = {
   player: "spellcast:playerId"
 } as const;
 
+setGameVisibility(false);
+
 const existingRoomFromPath = detectRoomIdFromLocation();
 let kickHandler: ((playerId: string) => void) | null = null;
 const landing = createLandingOverlay({
@@ -116,6 +118,15 @@ let hasEnteredGame = false;
 let knownPlayerIds = new Set<string>();
 let hasPlayerSnapshot = false;
 let lastRoomStatus: RoomStatus | null = null;
+let isHandlingKick = false;
+let kickedModal: HTMLDivElement | null = null;
+let kickedCheckInFlight = false;
+let isLeavingRoom = false;
+let suppressNextKickNotice = false;
+
+function setGameVisibility(active: boolean) {
+  document.body.classList.toggle("in-game", active);
+}
 
 landing.playOnlineBtn.addEventListener("click", () => {
   landing.showView("create");
@@ -247,6 +258,7 @@ function handleRoomEntry(response: CreateRoomResponse | JoinRoomResponse, replac
   saveName(response.player.name);
   persistRoomSession(response.roomId, response.player.id);
   setAppPath(buildRoomPath(response.roomId), replacePath);
+  setGameVisibility(false);
   lobbyContext = {
     roomId: response.roomId,
     playerId: response.player.id,
@@ -266,6 +278,8 @@ function handleRoomEntry(response: CreateRoomResponse | JoinRoomResponse, replac
 
 async function leaveCurrentRoom() {
   if (!lobbyContext) return;
+  isLeavingRoom = true;
+  suppressNextKickNotice = true;
   landing.setBusy(true, "Leaving room...");
   try {
     await leaveRoom(lobbyContext.roomId, lobbyContext.playerId, lobbyContext.playerId);
@@ -280,12 +294,15 @@ async function leaveCurrentRoom() {
     knownPlayerIds = new Set<string>();
     hasPlayerSnapshot = false;
     lastRoomStatus = null;
+    isLeavingRoom = false;
+    suppressNextKickNotice = false;
     clearRoomSession();
     hasEnteredGame = false;
     setAppPath(HOME_PATH, true);
     landing.showView("menu");
     landing.setMessage("");
     landing.show("menu");
+    setGameVisibility(false);
   }
 }
 
@@ -314,8 +331,18 @@ function connectRealtime(roomId: string, playerId: string) {
   roomSocket = connectRoomSocket(roomId, playerId, {
     onRoomUpdate: (room) => handleRoomUpdate(room),
     onDisconnect: (reason) => {
+      if (isHandlingKick) return;
+      if (isLeavingRoom) return;
+      if (reason === "io server disconnect") {
+        void handleForcedRemoval();
+        return;
+      }
       if (reason !== "io client disconnect") {
-        showConnectionNotice("Connection lost. Reconnecting…");
+        void checkIfKickedFallback().then((kicked) => {
+          if (!kicked) {
+            showConnectionNotice("Connection lost. Reconnecting…");
+          }
+        });
       }
     },
     onError: (message) => {
@@ -330,10 +357,17 @@ function connectRealtime(roomId: string, playerId: string) {
     onSelection: (ownerId, tileIds) => {
       handleSelectionBroadcast(ownerId, tileIds);
     },
+    onKicked: () => {
+      if (suppressNextKickNotice) {
+        suppressNextKickNotice = false;
+        return;
+      }
+      void handleForcedRemoval();
+    },
     onConnect: () => hideConnectionNotice(),
     onReconnect: () => hideConnectionNotice()
   });
-  multiplayerBridge = createMultiplayerBridge(roomSocket);
+  multiplayerBridge = createMultiplayerBridge(roomSocket, roomId, playerId);
 }
 
 function disconnectRealtime() {
@@ -354,6 +388,12 @@ function handleRoomUpdate(room: RoomDTO) {
   knownPlayerIds = new Set(room.players.map((player) => player.id));
   hasPlayerSnapshot = true;
 
+  // Detect if we were removed from the room
+  if (!isLeavingRoom && lobbyContext && !room.players.some((player) => player.id === lobbyContext.playerId)) {
+    void handleForcedRemoval();
+    return;
+  }
+
   if (lastRoomStatus === "lobby" && room.status === "in-progress") {
     soundManager.play("game-start");
   }
@@ -365,12 +405,14 @@ function handleRoomUpdate(room: RoomDTO) {
   }
   if (landing.isVisible() && landing.currentView === "lobby") {
     renderLobby(room);
+    setGameVisibility(false);
   }
   if (room.status === "in-progress" && !hasEnteredGame) {
     enterGame(room);
   }
   if (hasEnteredGame && room.status === "lobby") {
     hasEnteredGame = false;
+    setGameVisibility(false);
     landing.showView("lobby");
     landing.show();
     landing.setMessage("Game complete. Waiting for the host to start again.", "info");
@@ -391,6 +433,31 @@ function handleRoomUpdate(room: RoomDTO) {
 
 function handleSelectionBroadcast(playerId: string, tileIds: string[]) {
   game?.applyRemoteSelection(playerId, tileIds ?? []);
+}
+
+async function handleForcedRemoval() {
+  if (isHandlingKick) return;
+  isHandlingKick = true;
+  await showKickedModal("You have been removed from the room.");
+  disconnectRealtime();
+  if (game) {
+    game.dispose();
+    game = null;
+    app.innerHTML = "";
+  }
+  clearRoomSession();
+  latestRoomSnapshot = null;
+  lobbyContext = null;
+  knownPlayerIds = new Set();
+  hasPlayerSnapshot = false;
+  hasEnteredGame = false;
+  lastRoomStatus = null;
+  landing.showView("menu");
+  landing.show();
+  landing.setMessage("You were removed from the room.", "error");
+  setAppPath(HOME_PATH, true);
+  isHandlingKick = false;
+  setGameVisibility(false);
 }
 
 function renderLobby(room: RoomDTO) {
@@ -472,6 +539,7 @@ function startSpellcast(roomState?: InitialRoomState, options?: { multiplayer?: 
   if (game) {
     game.dispose();
   }
+  setGameVisibility(true);
   game = new SpellcastGame(app, dictionary, roomState, options);
   window.addEventListener("spellcast:exit", handleGameExit);
   if (!roomState?.roomId) {
@@ -495,6 +563,7 @@ function exitOfflineGame() {
   game?.dispose();
   game = null;
   app.innerHTML = "";
+  setGameVisibility(false);
   landing.show("menu");
   landing.setMessage("");
   setAppPath(HOME_PATH, true);
@@ -596,7 +665,66 @@ function setAppPath(path: string, replace: boolean) {
   }
 }
 
-function createMultiplayerBridge(socket: RoomSocket): MultiplayerController {
+function showKickedModal(message: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (kickedModal) {
+      kickedModal.remove();
+      kickedModal = null;
+    }
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    kickedModal = overlay;
+
+    const text = document.createElement("p");
+    text.className = "modal__message";
+    text.textContent = message;
+
+    const actions = document.createElement("div");
+    actions.className = "modal__actions";
+
+    const okBtn = document.createElement("button");
+    okBtn.className = "modal__btn primary";
+    okBtn.textContent = "Okay";
+    okBtn.addEventListener("click", () => {
+      overlay.remove();
+      kickedModal = null;
+      isHandlingKick = false;
+      resolve();
+    });
+
+    actions.append(okBtn);
+    modal.append(text, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  });
+}
+
+async function checkIfKickedFallback(): Promise<boolean> {
+  if (isHandlingKick || kickedCheckInFlight) return false;
+  if (!lobbyContext) return false;
+  kickedCheckInFlight = true;
+  try {
+    const room = await getRoom(lobbyContext.roomId);
+    const stillInRoom = room.players.some((p) => p.id === lobbyContext!.playerId);
+    if (!stillInRoom) {
+      await handleForcedRemoval();
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    kickedCheckInFlight = false;
+  }
+}
+
+function createMultiplayerBridge(
+  socket: RoomSocket,
+  roomId: string,
+  requesterId: string
+): MultiplayerController {
   return {
     submitWord(tileIds: string[]) {
       console.log("[client][socket] emit game:submitWord", tileIds);
@@ -621,6 +749,18 @@ function createMultiplayerBridge(socket: RoomSocket): MultiplayerController {
     updateSelection(tileIds: string[]) {
       console.log("[client][socket] emit game:selection", tileIds);
       socket.emit("game:selection", { tileIds });
+    },
+    async kickPlayer(playerId: string) {
+      console.log("[client][api] kick player", playerId);
+      try {
+        await leaveRoom(roomId, playerId, requesterId);
+      } catch (error) {
+        console.warn("Failed to kick player", error);
+      }
+    },
+    skipTurn(playerId: string) {
+      console.log("[client][socket] emit game:skip", playerId);
+      socket.emit("game:skip", { playerId });
     }
   };
 }

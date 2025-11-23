@@ -17,6 +17,7 @@ export interface RoomSocketHandlers {
   onError?(message: string): void;
   onGameError?(message: string): void;
   onSelection?(playerId: string, tileIds: string[]): void;
+  onKicked?(): void;
   onConnect?(): void;
   onReconnect?(): void;
 }
@@ -26,6 +27,8 @@ export type RoomSocket = Socket<{
   "room:error": (payload: { message: string }) => void;
   "game:selection": (payload: { playerId: string; tileIds: string[] }) => void;
   "game:error": (payload: { message: string }) => void;
+  "room:kicked": (payload: { roomId: string }) => void;
+  "game:skip": (payload: { playerId?: string }) => void;
 }> &
   Socket;
 
@@ -61,6 +64,11 @@ export function connectRoomSocket(
   socket.on("game:selection", (payload: { playerId: string; tileIds: string[] }) => {
     console.log("[client][socket] game:selection", payload);
     handlers.onSelection?.(payload.playerId, payload.tileIds ?? []);
+  });
+
+  socket.on("room:kicked", () => {
+    console.warn("[client][socket] room:kicked");
+    handlers.onKicked?.();
   });
 
   socket.on("connect_error", (err) => {

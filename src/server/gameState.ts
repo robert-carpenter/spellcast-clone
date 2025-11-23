@@ -348,7 +348,7 @@ function calculateWordScore(tiles: TileModel[], hasLongWordBonus: boolean): numb
   return total + (hasLongWordBonus ? LONG_WORD_BONUS : 0);
 }
 
-function advanceTurn(room: Room) {
+export function advanceTurn(room: Room) {
   const game = requireGame(room);
   if (!game) return;
   if (!hasActivePlayers(room)) return;

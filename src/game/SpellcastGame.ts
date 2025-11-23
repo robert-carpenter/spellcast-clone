@@ -19,6 +19,7 @@ export interface Player {
   isHost: boolean;
   connected: boolean;
   isSpectator: boolean;
+  lastWord?: string;
 }
 
 export interface InitialRoomState {
@@ -37,6 +38,7 @@ export interface MultiplayerController {
   cancelSwap(): void | Promise<void>;
   updateSelection(tileIds: string[]): void | Promise<void>;
   kickPlayer?(playerId: string): void | Promise<void>;
+  skipTurn?(playerId: string): void | Promise<void>;
 }
 
 export class SpellcastGame {
@@ -81,7 +83,10 @@ export class SpellcastGame {
   private lastActivePlayerId?: string;
   private inputTarget: HTMLElement;
   private wasMyTurn = false;
-  private compactLayoutQuery = window.matchMedia("(max-width: 900px), (max-height: 520px)");
+  private compactLayoutQuery = window.matchMedia("(max-width: 300px), (max-height: 320px)");
+  private turnStartTime = performance.now();
+  private turnTimerId: number | null = null;
+  private turnTimerEl?: HTMLElement;
 
   constructor(
     target: HTMLElement,
@@ -101,7 +106,8 @@ export class SpellcastGame {
         gems: p.gems ?? 3,
         isHost: p.isHost ?? false,
         connected: p.connected ?? true,
-        isSpectator: p.isSpectator ?? false
+        isSpectator: p.isSpectator ?? false,
+        lastWord: undefined
       }));
       this.roomId = roomState.roomId;
       this.playerId = roomState.playerId;
@@ -119,7 +125,8 @@ export class SpellcastGame {
           gems: 3,
           isHost: true,
           connected: true,
-          isSpectator: false
+          isSpectator: false,
+          lastWord: undefined
         },
         {
           id: "local-2",
@@ -128,7 +135,8 @@ export class SpellcastGame {
           gems: 3,
           isHost: false,
           connected: true,
-          isSpectator: false
+          isSpectator: false,
+          lastWord: undefined
         }
       ];
     }
@@ -197,6 +205,8 @@ export class SpellcastGame {
 
     this.playersListEl = this.createSidebar();
     this.renderPlayers();
+    this.restartTurnTimer();
+    this.updateTurnTimerDisplay();
     if (this.pendingSnapshot) {
       this.applyGameSnapshot(this.pendingSnapshot);
       this.pendingSnapshot = undefined;
@@ -220,6 +230,10 @@ export class SpellcastGame {
 
   public dispose() {
     cancelAnimationFrame(this.animationId);
+    if (this.turnTimerId !== null) {
+      window.clearInterval(this.turnTimerId);
+      this.turnTimerId = null;
+    }
     this.inputTarget.removeEventListener("pointermove", this.onPointerMove);
     this.inputTarget.removeEventListener("pointerdown", this.onPointerDown);
     this.inputTarget.removeEventListener("click", this.onClick);
@@ -370,6 +384,11 @@ export class SpellcastGame {
 
   private renderPlayers() {
     this.playersListEl.innerHTML = "";
+    this.turnTimerEl = undefined;
+    const iAmHost =
+      this.isMultiplayer && this.playerId
+        ? Boolean(this.players.find((p) => p.id === this.playerId)?.isHost)
+        : false;
     this.players.forEach((player, index) => {
       const item = document.createElement("div");
       item.className = "player";
@@ -389,15 +408,6 @@ export class SpellcastGame {
       name.textContent = player.name;
 
       header.append(status, name);
-      if (index === this.currentPlayerIndex) {
-        const turnBadge = document.createElement("span");
-        turnBadge.className = "player__turnBadge";
-        turnBadge.title = "Current turn";
-        const hourglass = document.createElement("i");
-        hourglass.className = "fa-solid fa-hourglass-start";
-        turnBadge.append(hourglass);
-        header.append(turnBadge);
-      }
       if (player.isSpectator) {
         const spectateTag = document.createElement("span");
         spectateTag.className = "pill pill--spectator";
@@ -405,34 +415,68 @@ export class SpellcastGame {
         header.append(spectateTag);
       }
 
-      if (
-        this.isMultiplayer &&
-        this.isMyTurn() &&
-        this.players[this.currentPlayerIndex]?.isHost &&
-        player.id !== this.playerId &&
-        !player.isSpectator &&
-        this.multiplayer?.kickPlayer
-      ) {
-        const kickBtn = document.createElement("button");
-        kickBtn.className = "player__kick-icon";
-        kickBtn.title = `Kick ${player.name}`;
-        kickBtn.innerHTML = `<i class="fa-solid fa-user-slash"></i>`;
-        kickBtn.addEventListener("click", async (event) => {
-          event.stopPropagation();
-          const confirmed = await this.showConfirmation(`Remove ${player.name} from the game?`);
-          if (!confirmed) return;
-          this.multiplayer?.kickPlayer?.(player.id);
-        });
-        header.append(kickBtn);
+      if (this.isMultiplayer && iAmHost && player.id !== this.playerId && !player.isSpectator && (this.multiplayer?.kickPlayer || this.multiplayer?.skipTurn)) {
+        const actions = document.createElement("div");
+        actions.className = "player__actions";
+
+        if (this.multiplayer?.kickPlayer) {
+          const kickBtn = document.createElement("button");
+          kickBtn.className = "player__kick-btn";
+          kickBtn.title = `Kick ${player.name}`;
+          kickBtn.innerHTML = `<i class="fa-solid fa-ban"></i>`;
+          kickBtn.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            const confirmed = await this.showConfirmation(`Remove ${player.name} from the game?`);
+            if (!confirmed) return;
+            this.multiplayer?.kickPlayer?.(player.id);
+          });
+          actions.append(kickBtn);
+        }
+
+        if (index === this.currentPlayerIndex && this.multiplayer?.skipTurn) {
+          const skipBtn = document.createElement("button");
+          skipBtn.className = "player__skip-btn";
+          skipBtn.title = `Skip ${player.name}'s turn`;
+          skipBtn.innerHTML = `<i class="fa-solid fa-forward"></i>`;
+          skipBtn.addEventListener("click", async (event) => {
+            event.stopPropagation();
+            const confirmed = await this.showConfirmation(`Skip ${player.name}'s turn?`);
+            if (!confirmed) return;
+            this.multiplayer?.skipTurn?.(player.id);
+          });
+          actions.append(skipBtn);
+        }
+
+        header.append(actions);
       }
 
       const meta = document.createElement("div");
       meta.className = "player__meta";
-      meta.innerHTML = `<span class="pill pill--score"><i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${player.score}</span><span class="pill pill--gem"><i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i>${player.gems}</span>`;
+      const metaRow = document.createElement("div");
+      metaRow.className = "player__metaRow";
+      metaRow.innerHTML = `<span class="pill pill--score"><i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${player.score}</span><span class="pill pill--gem"><i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i>${player.gems}</span>`;
+      meta.append(metaRow);
 
-      item.append(header, meta);
+      if (index === this.currentPlayerIndex) {
+        const turnTimer = document.createElement("div");
+        turnTimer.className = "pill pill--turn player__turnTimer";
+        turnTimer.innerHTML = `<i class="fa-solid fa-hourglass-start pill__icon" aria-hidden="true"></i><span class="player__turnTimerText">00:00</span>`;
+        meta.append(turnTimer);
+        this.turnTimerEl = turnTimer;
+      }
+
+      if (player.lastWord) {
+        const lastWord = document.createElement("div");
+        lastWord.className = "player__lastWord";
+        lastWord.textContent = `${player.lastWord}`;
+        item.append(header, meta, lastWord);
+      } else {
+        item.append(header, meta);
+      }
       this.playersListEl.appendChild(item);
     });
+
+    this.updateTurnTimerDisplay();
   }
 
   private onAddPlayer = () => {
@@ -446,7 +490,8 @@ export class SpellcastGame {
       gems: 3,
       isHost: false,
       connected: true,
-      isSpectator: false
+      isSpectator: false,
+      lastWord: undefined
     });
     this.renderPlayers();
   };
@@ -549,6 +594,7 @@ export class SpellcastGame {
     const gemsEarned = this.board.collectGemsFromSelection();
     const player = this.players[this.currentPlayerIndex];
 
+    player.lastWord = normalizedWord;
     player.score += points;
     player.gems += gemsEarned;
     const submissionKey = `${this.round}:${player.id}:${normalizedWord}`;
@@ -809,6 +855,28 @@ export class SpellcastGame {
     }
   }
 
+  private restartTurnTimer() {
+    if (this.turnTimerId !== null) {
+      window.clearInterval(this.turnTimerId);
+    }
+    this.turnTimerId = window.setInterval(() => this.updateTurnTimerDisplay(), 1000);
+  }
+
+  private updateTurnTimerDisplay() {
+    if (!this.turnTimerEl) return;
+    const elapsed = Math.max(0, Math.floor((performance.now() - this.turnStartTime) / 1000));
+    const minutes = Math.floor(elapsed / 60)
+      .toString()
+      .padStart(2, "0");
+    const seconds = (elapsed % 60).toString().padStart(2, "0");
+    const text = this.turnTimerEl.querySelector(".player__turnTimerText");
+    if (text) {
+      text.textContent = `${minutes}:${seconds}`;
+    } else {
+      this.turnTimerEl.innerHTML = `<i class="fa-solid fa-hourglass-start pill__icon" aria-hidden="true"></i><span class="player__turnTimerText">${minutes}:${seconds}</span>`;
+    }
+  }
+
   private showConfirmation(message: string): Promise<boolean> {
     return new Promise((resolve) => {
       this.isModalOpen = true;
@@ -970,11 +1038,14 @@ export class SpellcastGame {
     this.players.forEach((player, index) => {
       player.score = 0;
       player.gems = 3;
+      player.lastWord = undefined;
       if (!this.isMultiplayer) {
         player.name = `Player ${index + 1}`;
       }
     });
     this.lastActivePlayerId = this.players[0]?.id;
+    this.turnStartTime = performance.now();
+    this.restartTurnTimer();
     this.board.setMultipliersEnabled(false);
     this.board.setWordMultiplierEnabled(false, {
       mode: this.isMultiplayer ? "sync" : "local",
@@ -1059,7 +1130,8 @@ export class SpellcastGame {
           gems: incoming.gems ?? 3,
           isHost: incoming.isHost,
           connected: incoming.connected ?? false,
-          isSpectator: incoming.isSpectator ?? false
+          isSpectator: incoming.isSpectator ?? false,
+          lastWord: undefined
         });
       }
     });
@@ -1098,6 +1170,8 @@ export class SpellcastGame {
     if (!newPlayerId || newPlayerId === previousPlayerId) return;
     this.lastActivePlayerId = newPlayerId;
     soundManager.play("turn-change");
+    this.turnStartTime = performance.now();
+    this.restartTurnTimer();
   }
 
   private updateTurnUi() {
@@ -1199,12 +1273,18 @@ export class SpellcastGame {
     }
     if (snapshot.lastSubmission) {
       const token = `${snapshot.round}:${snapshot.lastSubmission.playerId}:${snapshot.lastSubmission.word}`;
+      const submitter = this.players.find((p) => p.id === snapshot.lastSubmission!.playerId);
+      if (submitter) {
+        submitter.lastWord = snapshot.lastSubmission.word;
+      }
       if (token !== this.lastSubmissionToken) {
         this.lastSubmissionToken = token;
         soundManager.play("word-submit");
       }
     }
     this.renderPlayers();
+    this.turnStartTime = performance.now();
+    this.restartTurnTimer();
     this.updateTurnUi();
     if (snapshot.completed && !this.serverCompletionHandled) {
       this.serverCompletionHandled = true;
