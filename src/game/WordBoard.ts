@@ -292,7 +292,6 @@ export class WordBoard extends Group {
     tile.letter = this.normalizeLetter(letter);
     tile.bagTracked = false;
     this.applyStyle(tile, this.selected.has(tile) ? "selected" : "base");
-    this.ensureMinimumVowels();
   }
 
   public setSwapMode(active: boolean) {

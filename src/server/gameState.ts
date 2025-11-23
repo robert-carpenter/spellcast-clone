@@ -204,7 +204,6 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
     tile.multiplier = data.multiplier;
   });
   applyRoundWordTile(game);
-  ensureMinimumVowels(game.tiles);
   return { success: true };
 }
 
@@ -246,7 +245,6 @@ export function applySwap(
   tile.letter = normalizeLetter(letter);
   tile.hasGem = tile.hasGem; // no change
   game.swapModePlayerId = undefined;
-  ensureMinimumVowels(game.tiles);
   return { success: true };
 }
 
@@ -300,6 +298,7 @@ function refreshTiles(game: GameState, tiles: TileModel[]) {
   });
   topUpGems(game.tiles);
   applyRoundWordTile(game);
+  // TODO: we need to ensure vowels but only limited to the tiles that were collected. WEe dont want to refresh any other tiles.
   ensureMinimumVowels(game.tiles);
 }
 
