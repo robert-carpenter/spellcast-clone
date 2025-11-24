@@ -151,17 +151,19 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
       return res.status(400).json({ error: "Player name cannot be empty" });
     }
 
-    const joiningMidGame = room.status === "in-progress";
-    const player: Player = {
-      id: randomUUID(),
-      name: sanitized,
-      isHost: false,
-      score: 0,
-      gems: 3,
-      joinedAt: Date.now(),
-      connected: false,
-      isSpectator: joiningMidGame
-    };
+  const joiningMidGame = room.status === "in-progress";
+  const eligibleToJoinActive =
+    joiningMidGame && room.game && room.game.round === 1 && !room.game.completed;
+  const player: Player = {
+    id: randomUUID(),
+    name: sanitized,
+    isHost: false,
+    score: 0,
+    gems: 3,
+    joinedAt: Date.now(),
+    connected: false,
+    isSpectator: joiningMidGame && !eligibleToJoinActive
+  };
 
     room.players.push(player);
     res.status(201).json({
@@ -186,18 +188,19 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
     if (!playerId || typeof playerId !== "string") {
       return res.status(400).json({ error: "playerId is required" });
     }
-    if (room.hostId !== playerId) {
-      return res.status(403).json({ error: "Only the host can start the game" });
-    }
-    const activePlayers = room.players.filter((player) => !player.isSpectator);
-    if (!activePlayers.length) {
-      return res.status(400).json({ error: "Need at least one active player to start" });
-    }
-    room.status = "in-progress";
-    clearGameReset(roomId);
-    startNewGame(room, room.rounds);
-    broadcastRoom(roomId);
-    res.json({ room });
+  if (room.hostId !== playerId) {
+    return res.status(403).json({ error: "Only the host can start the game" });
+  }
+  const activePlayers = room.players.filter((player) => !player.isSpectator);
+  if (!activePlayers.length) {
+    return res.status(400).json({ error: "Need at least one active player to start" });
+  }
+  shuffleActivePlayers(room);
+  room.status = "in-progress";
+  clearGameReset(roomId);
+  startNewGame(room, room.rounds);
+  broadcastRoom(roomId);
+  res.json({ room });
   });
 
   app.patch("/api/rooms/:roomId/settings", (req: Request, res: Response) => {
@@ -439,6 +442,16 @@ function broadcastRoom(roomId: string) {
   if (room && activeIo) {
     activeIo.to(roomId).emit("room:update", room);
   }
+}
+
+function shuffleActivePlayers(room: Room) {
+  const active = room.players.filter((player) => !player.isSpectator);
+  for (let i = active.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [active[i], active[j]] = [active[j], active[i]];
+  }
+  const spectators = room.players.filter((player) => player.isSpectator);
+  room.players = [...active, ...spectators];
 }
 
 function removePlayerFromRoom(roomId: string, playerId: string): boolean {
