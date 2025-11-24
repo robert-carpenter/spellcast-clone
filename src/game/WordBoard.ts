@@ -895,11 +895,11 @@ export class WordBoard extends Group {
   }
 
   private encodeTileState(tile: Tile): string {
-    return `${tile.letter}|${tile.hasGem ? 1 : 0}|${tile.multiplier}|${tile.wordMultiplier}`;
+    return `${tile.letter}|${tile.hasGem ? 1 : 0}|${tile.multiplier}`;
   }
 
   private encodeState(state: TileModel): string {
-    return `${state.letter}|${state.hasGem ? 1 : 0}|${state.multiplier}|${state.wordMultiplier}`;
+    return `${state.letter}|${state.hasGem ? 1 : 0}|${state.multiplier}`;
   }
 
   private getLetterTexture(letter: string, state: TileState, hasGem: boolean, multiplier: Multiplier): Texture {
