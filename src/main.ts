@@ -774,7 +774,7 @@ function showKickedModal(message: string): Promise<void> {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--theme";
     kickedModal = overlay;
 
     const text = document.createElement("p");

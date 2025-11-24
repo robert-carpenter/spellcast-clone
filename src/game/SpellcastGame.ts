@@ -897,7 +897,7 @@ export class SpellcastGame {
       const overlay = document.createElement("div");
       overlay.className = "modal-overlay";
       const modal = document.createElement("div");
-      modal.className = "modal";
+      modal.className = "modal modal--theme";
 
       const text = document.createElement("p");
       text.textContent = message;
@@ -935,7 +935,7 @@ export class SpellcastGame {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--theme";
 
     const message = document.createElement("p");
     message.innerHTML = `<strong>${winner.name}</strong> won with <strong>${winner.score} points</strong>`;
@@ -1077,7 +1077,7 @@ export class SpellcastGame {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--theme";
     modal.style.maxHeight = "70vh";
     modal.style.overflowY = "auto";
 

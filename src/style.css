@@ -402,6 +402,39 @@ body.in-game #app {
   background: rgba(122, 215, 255, 0.35);
 }
 
+.modal.modal--theme {
+  background: #123761;
+  border: 2px solid #f7cd42;
+  color: #f7fbff;
+}
+
+.modal.modal--theme p {
+  color: #f7fbff;
+}
+
+.modal.modal--theme .modal__actions {
+  justify-content: center;
+}
+
+.modal.modal--theme .modal__btn {
+  border: 2px solid #e5b832;
+  background: #f7cd42;
+  color: #0d1f38;
+  font-weight: 800;
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.modal.modal--theme .modal__btn.primary {
+  background: #0d1f38;
+  border-color: #e5b832;
+  color: #f7fbff;
+}
+
+.modal.modal--theme .modal__btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+
 .letter-picker {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
