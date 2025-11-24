@@ -197,13 +197,17 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
   player.gems -= 1;
   const payload = game.tiles.map((tile: TileModel) => ({
     letter: tile.letter,
-    multiplier: tile.multiplier
+    multiplier: tile.multiplier,
+    hasGem: tile.hasGem,
+    wordMultiplier: tile.wordMultiplier
   }));
   shuffleArray(payload);
   game.tiles.forEach((tile: TileModel, index: number) => {
     const data = payload[index];
     tile.letter = data.letter;
     tile.multiplier = data.multiplier;
+    tile.hasGem = data.hasGem;
+    tile.wordMultiplier = data.wordMultiplier;
   });
   applyRoundWordTile(game);
   return { success: true };

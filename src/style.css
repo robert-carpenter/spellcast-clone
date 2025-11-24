@@ -317,6 +317,65 @@ body.in-game #app {
   letter-spacing: 0.05em;
 }
 
+.submit-anim-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 5;
+}
+
+.submit-anim__overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 10, 20, 0.55);
+  backdrop-filter: blur(1px);
+}
+
+.submit-anim__letter {
+  position: absolute;
+  width: 48px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  background: #0d1f38;
+  border: 2px solid #f7cd42;
+  border-radius: 10px;
+  color: #f7fbff;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  transform: translate(-50%, -50%) scale(0.4);
+  opacity: 0;
+  transition: transform 520ms ease, opacity 520ms ease;
+}
+
+.submit-anim__spell {
+  position: absolute;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(247, 205, 66, 0) 0%, rgba(247, 205, 66, 0.9) 50%, rgba(247, 205, 66, 0) 100%);
+  opacity: 0;
+}
+
+.submit-anim__spell.run {
+  animation: spell-travel 845ms ease-in forwards;
+}
+
+@keyframes spell-travel {
+  0% {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
+
 .modal__btn {
   border: 1px solid rgba(255, 255, 255, 0.25);
   background: rgba(255, 255, 255, 0.1);
