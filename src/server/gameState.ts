@@ -83,6 +83,7 @@ export function createInitialGameState(totalRounds = DEFAULT_ROUND_COUNT): GameS
     round: 1,
     totalRounds,
     currentPlayerIndex: 0,
+    turnStartedAt: Date.now(),
     multipliersEnabled: false,
     wordMultiplierEnabled: false,
     roundWordTileId: undefined,
@@ -104,6 +105,7 @@ export function startNewGame(room: Room, totalRounds = room.rounds ?? DEFAULT_RO
   const firstActive = findFirstActiveIndex(room);
   if (firstActive >= 0 && room.game) {
     room.game.currentPlayerIndex = firstActive;
+    room.game.turnStartedAt = Date.now();
   }
 }
 
@@ -354,6 +356,7 @@ export function advanceTurn(room: Room) {
   if (!hasActivePlayers(room)) return;
   const { index, wrapped } = getNextActiveIndex(room, game.currentPlayerIndex);
   game.currentPlayerIndex = index;
+  game.turnStartedAt = Date.now();
   if (wrapped) {
     advanceRound(room);
   }
@@ -405,6 +408,7 @@ export function advanceRound(room: Room) {
     } else {
       applyRoundWordTile(game);
     }
+    game.turnStartedAt = Date.now();
   } else {
     game.completed = true;
     determineWinner(room);

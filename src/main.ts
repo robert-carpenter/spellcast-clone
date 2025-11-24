@@ -68,6 +68,43 @@ const landing = createLandingOverlay({
   initialName: loadStoredName(),
   initialRoom: existingRoomFromPath ?? ""
 });
+
+landing.loginBtn.addEventListener("click", () => {
+  window.location.href = "/auth/discord/login";
+});
+
+landing.logoutBtn.addEventListener("click", async () => {
+  try {
+    await fetch("/auth/logout", { method: "POST", credentials: "include" });
+  } catch {
+    // ignore
+  }
+  sessionUser = null;
+  applySessionUi();
+});
+
+landing.joinWithCodeBtn.addEventListener("click", () => {
+  if (!sessionUser?.name) {
+    landing.setMessage("Login first to join with code.", "error");
+    return;
+  }
+  landing.joinNameInput.value = sessionUser.name;
+  landing.joinNameLabel.style.display = "none";
+  landing.joinNameInput.style.display = "none";
+  landing.joinRoomInput.value = "";
+  landing.showView("join");
+  landing.setMessage("");
+});
+
+fetchSession()
+  .then(() => {
+    applySessionUi();
+  })
+  .catch(() => {
+    applySessionUi();
+  });
+
+handleAuthQueryParam();
 landing.setKickHandler((playerId) => {
   handleKickPlayer(playerId).catch((err) => console.error(err));
 });
@@ -123,12 +160,64 @@ let kickedModal: HTMLDivElement | null = null;
 let kickedCheckInFlight = false;
 let isLeavingRoom = false;
 let suppressNextKickNotice = false;
+let sessionUser: { id: string; name: string } | null = null;
+
+async function fetchSession() {
+  try {
+    const res = await fetch("/auth/session", { credentials: "include" });
+    if (!res.ok) {
+      sessionUser = null;
+      return;
+    }
+    const data = (await res.json()) as { authenticated: boolean; user?: { id: string; name: string } };
+    if (data.authenticated && data.user) {
+      sessionUser = data.user;
+      saveName(data.user.name);
+    } else {
+      sessionUser = null;
+    }
+  } catch {
+    sessionUser = null;
+  }
+}
+
+function applySessionUi() {
+  if (!landing) return;
+  const hasSession = Boolean(sessionUser);
+  const name = sessionUser?.name ?? "";
+  if (hasSession) {
+    landing.createNameLabel.style.display = "none";
+    landing.createNameInput.style.display = "none";
+    landing.joinNameLabel.style.display = "none";
+    landing.joinNameInput.style.display = "none";
+    landing.createNameInput.value = name;
+    landing.joinNameInput.value = name;
+    landing.sessionTag.style.display = "block";
+    landing.sessionTag.textContent = `Logged in as ${name}`;
+    landing.loginBtn.style.display = "none";
+    landing.logoutBtn.style.display = "inline-block";
+    landing.joinWithCodeBtn.style.display = "inline-block";
+  } else {
+    landing.createNameLabel.style.display = "";
+    landing.createNameInput.style.display = "";
+    landing.joinNameLabel.style.display = "";
+    landing.joinNameInput.style.display = "";
+    landing.sessionTag.style.display = "none";
+    landing.loginBtn.style.display = "inline-block";
+    landing.logoutBtn.style.display = "none";
+    landing.joinWithCodeBtn.style.display = "none";
+  }
+}
 
 function setGameVisibility(active: boolean) {
   document.body.classList.toggle("in-game", active);
 }
 
 landing.playOnlineBtn.addEventListener("click", () => {
+  if (sessionUser?.name) {
+    handleCreateRoom(sessionUser.name).catch((err) => console.error(err));
+    return;
+  }
   landing.showView("create");
   landing.setMessage("");
 });
@@ -160,7 +249,7 @@ landing.joinBackBtn.addEventListener("click", () => {
 });
 
 landing.createBtn.addEventListener("click", () => {
-  const name = landing.createNameInput.value.trim();
+  const name = sessionUser?.name ?? landing.createNameInput.value.trim();
   if (!name) {
     landing.setMessage("Enter a display name.", "error");
     return;
@@ -169,7 +258,7 @@ landing.createBtn.addEventListener("click", () => {
 });
 
 landing.joinBtn.addEventListener("click", () => {
-  const name = landing.joinNameInput.value.trim();
+  const name = sessionUser?.name ?? landing.joinNameInput.value.trim();
   const code = landing.joinRoomInput.value.trim().toUpperCase();
   if (!name) {
     landing.setMessage("Enter your name to join.", "error");
@@ -665,6 +754,17 @@ function setAppPath(path: string, replace: boolean) {
   }
 }
 
+function handleAuthQueryParam() {
+  const params = new URLSearchParams(window.location.search);
+  const auth = params.get("auth");
+  if (auth === "failed") {
+    landing.setMessage("Login failed. Please try again.", "error");
+    params.delete("auth");
+    const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", next);
+  }
+}
+
 function showKickedModal(message: string): Promise<void> {
   return new Promise((resolve) => {
     if (kickedModal) {
@@ -844,7 +944,31 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   playOfflineBtn.className = "landing-menu__btn";
   playOfflineBtn.textContent = "Play Offline";
 
-  menuActions.append(playOnlineBtn, playOfflineBtn);
+  const joinWithCodeBtn = document.createElement("button");
+  joinWithCodeBtn.className = "landing-menu__btn";
+  joinWithCodeBtn.textContent = "Join with Code";
+  joinWithCodeBtn.style.display = "none";
+
+  const loginBtn = document.createElement("button");
+  loginBtn.className = "landing-menu__btn";
+  loginBtn.textContent = "Login with Discord";
+  const logoutBtn = document.createElement("button");
+  logoutBtn.className = "landing-menu__btn";
+  logoutBtn.textContent = "Logout";
+  logoutBtn.style.display = "none";
+
+  const sessionTag = document.createElement("div");
+  sessionTag.className = "landing-menu__session";
+  sessionTag.style.display = "none";
+
+  menuActions.append(
+    playOnlineBtn,
+    playOfflineBtn,
+    joinWithCodeBtn,
+    loginBtn,
+    logoutBtn,
+    sessionTag
+  );
   menuView.append(menuTitle, menuSubtitle, menuActions);
   registerView("menu", menuView);
 
@@ -1172,10 +1296,16 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     },
     playOnlineBtn,
     playOfflineBtn,
+    joinWithCodeBtn,
+    loginBtn,
+    logoutBtn,
+    sessionTag,
+    createNameLabel,
     createNameInput,
     createBtn,
     createBackBtn,
     createToJoinBtn: toJoinBtn,
+    joinNameLabel,
     joinNameInput,
     joinRoomInput,
     joinBtn,

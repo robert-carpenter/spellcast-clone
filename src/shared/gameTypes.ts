@@ -27,6 +27,7 @@ export interface GameSnapshot {
   round: number;
   totalRounds: number;
   currentPlayerIndex: number;
+  turnStartedAt: number;
   multipliersEnabled: boolean;
   wordMultiplierEnabled: boolean;
   roundWordTileId?: string;

@@ -87,6 +87,7 @@ export class SpellcastGame {
   private turnStartTime = performance.now();
   private turnTimerId: number | null = null;
   private turnTimerEl?: HTMLElement;
+  private dictionaryWords: string[];
 
   constructor(
     target: HTMLElement,
@@ -96,6 +97,7 @@ export class SpellcastGame {
   ) {
     this.container = target;
     this.dictionary = dictionary;
+    this.dictionaryWords = Array.from(dictionary).sort();
     this.multiplayer = options?.multiplayer ?? null;
     this.isMultiplayer = Boolean(roomState ?? options?.multiplayer);
     if (roomState && roomState.players.length) {
@@ -349,6 +351,14 @@ export class SpellcastGame {
     const actionTray = document.createElement("div");
     actionTray.className = "player-action-tray";
 
+    const dictionaryButton = document.createElement("button");
+    dictionaryButton.className = "player-action-btn";
+    dictionaryButton.setAttribute("aria-label", "Open dictionary search");
+    const dictionaryIcon = document.createElement("i");
+    dictionaryIcon.className = "fa-solid fa-spell-check";
+    dictionaryButton.appendChild(dictionaryIcon);
+    dictionaryButton.addEventListener("click", () => this.showDictionarySearch());
+
     const logButton = document.createElement("button");
     logButton.className = "player-action-btn";
     logButton.setAttribute("aria-label", "View activity log");
@@ -370,7 +380,7 @@ export class SpellcastGame {
       window.dispatchEvent(new CustomEvent("spellcast:exit"));
     });
 
-    actionTray.append(logButton, exitButton);
+    actionTray.append(dictionaryButton, logButton, exitButton);
 
     if (this.isMultiplayer) {
       controls.style.display = "none";
@@ -739,13 +749,9 @@ export class SpellcastGame {
       this.setWordBoxValidity(null);
       return;
     }
+    const potentialScore = this.calculateWordScore(selection, word.length >= 6);
     const isValid = this.dictionary.has(word);
-    if (isValid) {
-      const potentialScore = this.calculateWordScore(selection, word.length >= 6);
-      this.wordBox.textContent = `${word} (${potentialScore})`;
-    } else {
-      this.wordBox.textContent = word;
-    }
+    this.wordBox.textContent = `${word} (${potentialScore})`;
     this.setWordBoxValidity(isValid);
   }
 
@@ -1098,6 +1104,65 @@ export class SpellcastGame {
     document.body.appendChild(overlay);
   }
 
+  private showDictionarySearch() {
+    if (this.isModalOpen) return;
+    this.isModalOpen = true;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal";
+    modal.style.width = "90vw";
+    modal.style.maxWidth = "900px";
+    modal.style.height = "80vh";
+    modal.style.display = "flex";
+    modal.style.flexDirection = "column";
+    modal.style.gap = "12px";
+
+    const title = document.createElement("h3");
+    title.textContent = "Dictionary Search";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Type to search words...";
+    input.className = "dictionary-modal__input";
+
+    const list = document.createElement("div");
+    list.className = "dictionary-modal__list";
+
+    const renderList = (query: string) => {
+      list.innerHTML = "";
+      const term = query.trim().toUpperCase();
+      if (term.length < 2) {
+        return;
+      }
+      const matches = this.dictionaryWords.filter((word) => word.includes(term));
+      matches.forEach((word) => {
+        const row = document.createElement("div");
+        row.className = "dictionary-modal__item";
+        row.textContent = word;
+        list.appendChild(row);
+      });
+    };
+
+    input.addEventListener("input", () => renderList(input.value));
+    renderList("");
+
+    const actions = document.createElement("div");
+    actions.className = "modal__actions";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "modal__btn primary";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => {
+      overlay.remove();
+      this.isModalOpen = false;
+    });
+    actions.append(closeBtn);
+
+    modal.append(title, input, list, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
   public syncRoomPlayers(
     snapshot: Array<{
       id: string;
@@ -1170,8 +1235,10 @@ export class SpellcastGame {
     if (!newPlayerId || newPlayerId === previousPlayerId) return;
     this.lastActivePlayerId = newPlayerId;
     soundManager.play("turn-change");
-    this.turnStartTime = performance.now();
-    this.restartTurnTimer();
+    if (!this.isMultiplayer) {
+      this.turnStartTime = performance.now();
+      this.restartTurnTimer();
+    }
   }
 
   private updateTurnUi() {
@@ -1283,8 +1350,11 @@ export class SpellcastGame {
       }
     }
     this.renderPlayers();
-    this.turnStartTime = performance.now();
-    this.restartTurnTimer();
+    if (typeof snapshot.turnStartedAt === "number") {
+      const offset = Math.max(0, Date.now() - snapshot.turnStartedAt);
+      this.turnStartTime = performance.now() - offset;
+      this.restartTurnTimer();
+    }
     this.updateTurnUi();
     if (snapshot.completed && !this.serverCompletionHandled) {
       this.serverCompletionHandled = true;

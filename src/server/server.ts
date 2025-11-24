@@ -1,6 +1,7 @@
+import "dotenv/config";
 import cors from "cors";
 import express, { Request, Response } from "express";
-import { randomUUID } from "crypto";
+import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import { createServer } from "http";
 import type { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
@@ -43,6 +44,12 @@ const MAX_PLAYERS = 6;
 const DISCONNECT_GRACE_MS = 5 * 60 * 1000; // allow mobile browsers to background for up to 5 minutes
 const NEW_GAME_DELAY_MS = 5000;
 const DICTIONARY = loadDictionary();
+const SESSION_COOKIE = "discord_session";
+const STATE_COOKIE = "discord_state";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const DISCORD_API = "https://discord.com/api";
+const SESSION_SECRET = process.env.SESSION_SECRET || "changeme";
 
 export function initializeBackend(
   app: express.Express,
@@ -83,6 +90,102 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
   app.get("/api/health", (_req: Request, res: Response) => {
     log("GET /api/health");
     res.json({ status: "ok" });
+  });
+
+  app.get("/auth/discord/login", (req: Request, res: Response) => {
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    const redirectUri = process.env.DISCORD_REDIRECT_URI;
+    if (!clientId || !redirectUri) {
+      return res.status(500).json({ error: "Discord OAuth not configured" });
+    }
+    const state = randomUUID();
+    setCookie(res, STATE_COOKIE, signToken({ state, exp: Date.now() + STATE_TTL_MS }), {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProduction(),
+      maxAge: STATE_TTL_MS / 1000
+    });
+    const params = new URLSearchParams({
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      response_type: "code",
+      scope: "identify",
+      state
+    });
+    res.redirect(`${DISCORD_API}/oauth2/authorize?${params.toString()}`);
+  });
+
+  app.get("/auth/discord/callback", async (req: Request, res: Response) => {
+    const code = req.query.code as string | undefined;
+    const state = req.query.state as string | undefined;
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+    const redirectUri = process.env.DISCORD_REDIRECT_URI;
+    if (!code || !state || !clientId || !clientSecret || !redirectUri) {
+      return res.redirect("/?auth=failed");
+    }
+
+    const storedState = getSessionFromCookie(req, STATE_COOKIE);
+    if (!storedState || storedState.state !== state || storedState.exp < Date.now()) {
+      return res.redirect("/?auth=failed");
+    }
+
+    try {
+      const tokenRes = await fetch(`${DISCORD_API}/oauth2/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: redirectUri
+        })
+      });
+      if (!tokenRes.ok) throw new Error("token exchange failed");
+      const tokenJson = (await tokenRes.json()) as { access_token?: string; token_type?: string };
+      const accessToken = tokenJson.access_token;
+      const tokenType = tokenJson.token_type;
+      if (!accessToken || !tokenType) throw new Error("missing token");
+
+      const userRes = await fetch(`${DISCORD_API}/users/@me`, {
+        headers: { Authorization: `${tokenType} ${accessToken}` }
+      });
+      if (!userRes.ok) throw new Error("user fetch failed");
+      const user = (await userRes.json()) as { id: string; username: string; global_name?: string };
+      const displayName = user.global_name || user.username || "Wizard";
+
+      const session = signToken({
+        id: user.id,
+        name: displayName,
+        exp: Date.now() + SESSION_TTL_MS
+      });
+      setCookie(res, SESSION_COOKIE, session, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isProduction(),
+        maxAge: SESSION_TTL_MS / 1000
+      });
+      clearCookie(res, STATE_COOKIE);
+      res.redirect("/");
+    } catch (error) {
+      console.warn("discord auth failed", error);
+      res.redirect("/?auth=failed");
+    }
+  });
+
+  app.get("/auth/session", (req: Request, res: Response) => {
+    const session = getSessionFromCookie(req, SESSION_COOKIE);
+    if (!session || session.exp < Date.now()) {
+      clearCookie(res, SESSION_COOKIE);
+      return res.status(401).json({ authenticated: false });
+    }
+    res.json({ authenticated: true, user: { id: session.id, name: session.name } });
+  });
+
+  app.post("/auth/logout", (_req: Request, res: Response) => {
+    clearCookie(res, SESSION_COOKIE);
+    res.json({ success: true });
   });
 
   app.post("/api/rooms", (req: Request, res: Response) => {
@@ -452,6 +555,75 @@ function shuffleActivePlayers(room: Room) {
   }
   const spectators = room.players.filter((player) => player.isSpectator);
   room.players = [...active, ...spectators];
+}
+
+function signToken(payload: Record<string, unknown>): string {
+  const json = JSON.stringify(payload);
+  const data = Buffer.from(json).toString("base64url");
+  const sig = createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+function verifyToken<T>(token: string): T | null {
+  const [data, sig] = token.split(".");
+  if (!data || !sig) return null;
+  const expected = createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+  if (!safeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const json = Buffer.from(data, "base64url").toString("utf8");
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
+  }
+}
+
+function safeEqual(a: Buffer, b: Buffer): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function parseCookies(req: Request): Record<string, string> {
+  const header = req.headers.cookie;
+  if (!header) return {};
+  return header.split(";").reduce<Record<string, string>>((acc, part) => {
+    const [key, ...rest] = part.split("=");
+    acc[key.trim()] = decodeURIComponent(rest.join("=").trim());
+    return acc;
+  }, {});
+}
+
+function getSessionFromCookie(req: Request, name: string): { id: string; name: string; exp: number; state?: string } | null {
+  const cookies = parseCookies(req);
+  const token = cookies[name];
+  if (!token) return null;
+  return verifyToken<{ id: string; name: string; exp: number; state?: string }>(token);
+}
+
+function setCookie(
+  res: Response,
+  name: string,
+  value: string,
+  options: { httpOnly?: boolean; secure?: boolean; sameSite?: "lax" | "strict" | "none"; maxAge?: number }
+) {
+  const attrs = [
+    `${name}=${encodeURIComponent(value)}`,
+    "Path=/",
+    options.httpOnly ? "HttpOnly" : "",
+    options.secure ? "Secure" : "",
+    options.sameSite ? `SameSite=${options.sameSite}` : "SameSite=Lax",
+    typeof options.maxAge === "number" ? `Max-Age=${Math.floor(options.maxAge)}` : ""
+  ]
+    .filter(Boolean)
+    .join("; ");
+  res.append("Set-Cookie", attrs);
+}
+
+function clearCookie(res: Response, name: string) {
+  res.append("Set-Cookie", `${name}=; Path=/; Max-Age=0; SameSite=Lax`);
+}
+
+function isProduction() {
+  return process.env.NODE_ENV === "production";
 }
 
 function removePlayerFromRoom(roomId: string, playerId: string): boolean {
