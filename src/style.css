@@ -1,11 +1,11 @@
 @import url("https://fonts.googleapis.com/css2?family=Play:wght@500;700&display=swap");
 
 :root {
-  --bg: radial-gradient(circle at 20% 20%, #222840, #0b0f1a 45%);
-  --accent: #7ad7ff;
-  --tile: #1c2236;
-  --tile-border: #374469;
-  --text: #e9f0ff;
+  --bg: #0d213d;
+  --accent: #f7cd42;
+  --tile: #0b2a4a;
+  --tile-border: #1f4f85;
+  --text: #f3fbff;
   --app-scale: 1;
   --app-width: 1100px;
   --app-height: 620px;
@@ -36,7 +36,7 @@ body {
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  background: radial-gradient(circle at 20% 20%, rgba(10, 12, 25, 0.65), rgba(7, 9, 18, 0.85)),
+  background: linear-gradient(180deg, rgba(12, 34, 66, 0.16), rgba(12, 34, 66, 0.28)),
     url("./assets/wizard_background.png") center/cover no-repeat fixed;
 }
 
@@ -51,7 +51,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%) scale(var(--app-scale));
   transform-origin: center center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  box-shadow: none;
   display: flex;
   gap: 12px;
   background: linear-gradient(120deg, #0e1322, #0a0f1c 50%, #0d1424);
@@ -140,20 +140,18 @@ body.in-game #app {
   height: 10px;
   border-radius: 50%;
   display: inline-block;
-  box-shadow: 0 0 6px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
   flex-shrink: 0;
   margin-right: 6px;
 }
 
 .status-indicator--online {
   background: #3fef9b;
-  box-shadow: 0 0 8px rgba(63, 239, 155, 0.6);
   margin-top: 4px;
 }
 
 .status-indicator--offline {
   background: #ff6b6b;
-  box-shadow: 0 0 8px rgba(255, 107, 107, 0.5);
   opacity: 0.85;
   margin-top: 4px;
 }
@@ -171,7 +169,7 @@ body.in-game #app {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* box-shadow: 0 18px 50px rgba(0, 0, 0, 0.4); */
+  /* box-shadow: none; */
 }
 
 .hud__controls {
@@ -244,7 +242,7 @@ body.in-game #app {
   font-weight: 700;
   pointer-events: none;
   text-transform: uppercase;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
   top: 100px;
   z-index: 2;
   min-width: 240px;
@@ -252,12 +250,12 @@ body.in-game #app {
 
 .word-box--valid {
   border-color: rgba(122, 215, 255, 0.8);
-  box-shadow: 0 10px 30px rgba(74, 181, 255, 0.45);
+  box-shadow: none;
 }
 
 .word-box--invalid {
   border-color: rgba(255, 105, 97, 0.85);
-  box-shadow: 0 10px 30px rgba(255, 105, 97, 0.4);
+  box-shadow: none;
 }
 
 .modal-overlay {
@@ -276,7 +274,7 @@ body.in-game #app {
   padding: 20px 24px;
   min-width: 280px;
   color: #dfe9ff;
-  box-shadow: 0 25px 55px rgba(0, 0, 0, 0.5);
+  box-shadow: none;
   font-size: 16px;
 }
 
@@ -342,7 +340,7 @@ body.in-game #app {
   border-radius: 10px;
   padding: 14px 12px;
   border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: inset 0 0 0 1px rgba(122, 215, 255, 0.07);
+  box-shadow: none;
   display: flex;
 }
 
@@ -552,13 +550,13 @@ body.in-game #app {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 8px rgba(122, 215, 255, 0.5);
+  box-shadow: none;
   font-size: 10px;
 }
 
 .player--active {
   border-color: rgba(122, 215, 255, 0.5);
-  box-shadow: 0 0 12px rgba(122, 215, 255, 0.3);
+  box-shadow: none;
 }
 
 .player__name {
@@ -661,6 +659,7 @@ body.in-game #app {
   justify-content: center;
   padding: 20px;
   z-index: 9999;
+  background: rgba(12, 26, 46, 0.45);
 }
 
 .landing-overlay--hidden {
@@ -673,11 +672,10 @@ body.in-game #app {
 
 .landing-panel {
   width: min(460px, 92vw);
-  background: linear-gradient(160deg, rgba(10, 14, 28, 0.95), rgba(5, 8, 18, 0.98));
-  border: 1px solid rgba(122, 215, 255, 0.4);
+  background: #123761;
   border-radius: 16px;
   padding: 32px 30px;
-  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.6);
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -689,7 +687,7 @@ body.in-game #app {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #8abaff;
+  color: #f7cd42;
   margin-top: 12px;
 }
 
@@ -697,8 +695,8 @@ body.in-game #app {
   width: 100%;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.05);
-  color: #f4fbff;
+  background: rgba(255, 255, 255, 0.07);
+  color: #f6fbff;
   padding: 10px 12px;
   font-size: 16px;
   font-family: inherit;
@@ -706,8 +704,8 @@ body.in-game #app {
 
 .landing-panel__input:focus {
   outline: none;
-  border-color: rgba(122, 215, 255, 0.6);
-  box-shadow: 0 0 0 2px rgba(122, 215, 255, 0.2);
+  border-color: rgba(247, 205, 66, 0.85);
+  box-shadow: none;
 }
 
 .landing-panel__actions {
@@ -721,11 +719,11 @@ body.in-game #app {
   min-height: 20px;
   font-size: 14px;
   margin-top: 6px;
-  color: #98c8ff;
+  color: #e6f7ff;
 }
 
 .landing-panel__status[data-tone="error"] {
-  color: #ff8ea8;
+  color: #ff9fb0;
 }
 
 .landing-views {
@@ -768,58 +766,90 @@ body.in-game #app {
   font-size: 28px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #f1fbff;
+  color: #f9fdff;
 }
 
 .landing-menu__subtitle {
   margin: 0;
-  color: rgba(223, 233, 255, 0.8);
+  color: rgba(222, 243, 255, 0.82);
 }
 
 .landing-menu__actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
 }
 
 .landing-menu__btn {
   padding: 12px;
   font-size: 16px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.08);
-  color: #eaf2ff;
+  border: 2px solid #e5b832;
+  background: #f7cd42;
+  color: #0d1f38;
   font-weight: 700;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  box-shadow: none;
 }
 
 .landing-menu__btn.primary {
-  background: rgba(122, 215, 255, 0.25);
-  border-color: rgba(122, 215, 255, 0.5);
-  color: #072035;
+  background: #f7cd42;
+  border-color: #e5b832;
+  color: #0d1f38;
 }
 
 .landing-menu__btn:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-3px) scale(1.03) rotate(-1deg);
+  box-shadow: none;
+  filter: brightness(1.05);
+}
+
+.landing-menu__btn:active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
+}
+
+.landing-panel button:not(.share-copy-btn):not(.landing-link):not(.lobby-player__kick) {
+  padding: 10px;
+  font-size: 15px;
+  border-radius: 12px;
+  border: 2px solid #e5b832;
+  background: #f7cd42;
+  color: #0d1f38;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  box-shadow: none;
+}
+
+.landing-panel button:not(.share-copy-btn):not(.landing-link):not(.lobby-player__kick):hover {
+  transform: translateY(-3px) scale(1.03) rotate(-1deg);
+  box-shadow: none;
+  filter: brightness(1.05);
+}
+
+.landing-panel button:not(.share-copy-btn):not(.landing-link):not(.lobby-player__kick):active {
+  transform: translateY(0) scale(0.97);
+  box-shadow: none;
 }
 
 .landing-view__form h2 {
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #f1fbff;
+  color: #f7cd42;
 }
 
 .landing-link {
   background: none;
   border: none;
-  color: #7ad7ff;
+  color: #f7cd42;
   text-decoration: underline;
   cursor: pointer;
-  margin-top: 4px;
+  margin-top: 12px;
   align-self: flex-start;
   padding: 0;
 }
@@ -840,13 +870,13 @@ body.in-game #app {
   margin: 0;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #f1fbff;
+  color: #f7cd42;
 }
 
 .lobby-room-code {
   font-size: 14px;
   letter-spacing: 0.2em;
-  color: #9fd5ff;
+  color: #cfe8ff;
   text-transform: uppercase;
 }
 
@@ -872,9 +902,9 @@ body.in-game #app {
   width: 100%;
   flex: 1;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: #f4fbff;
+  border: 1px solid rgba(247, 205, 66, 1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #f7fbff;
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -883,19 +913,21 @@ body.in-game #app {
   min-width: 44px;
   padding: 0 14px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
-  color: #dfe9ff;
+  border: 2px solid #e5b832;
+  background: #f7cd42;
+  color: #0d1f38;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  box-shadow: none;
 }
 
 .share-copy-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-2px) scale(1.02) rotate(-1deg);
+  box-shadow: none;
+  filter: brightness(1.05);
 }
 
 .share-copy-btn:disabled {
@@ -918,12 +950,13 @@ body.in-game #app {
 .lobby-players {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   max-height: 220px;
   overflow-y: auto;
+  border-radius: 10px;
 }
 
 .lobby-players__heading {
@@ -931,21 +964,20 @@ body.in-game #app {
   font-size: 15px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(223, 233, 255, 0.8);
+  color: rgba(247, 205, 66, 0.8);
 }
 
 .lobby-player {
   padding: 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-weight: 600;
-  color: #e3ecff;
+  background: rgba(22, 94, 175, 0.3);
+  font-weight: 700;
+  color: #f7fbff;
 }
 
 .lobby-status {
   min-height: 20px;
-  color: #9fd5ff;
+  color: #cfe8ff;
   font-size: 14px;
 }
 
@@ -960,7 +992,7 @@ body.in-game #app {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: rgba(223, 233, 255, 0.75);
+  color: rgba(247, 205, 66, 0.9);
 }
 
 .lobby-rounds__options {
@@ -981,18 +1013,19 @@ body.in-game #app {
   display: inline-block;
   padding: 6px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.05);
-  color: #dfe9ff;
-  font-weight: 600;
+  border: 2px solid rgba(247, 205, 66, 0.7);
+  background: rgba(22, 94, 175, 0.35);
+  color: #f7fbff;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
 .lobby-rounds__option input:checked + span {
-  background: rgba(122, 215, 255, 0.25);
-  border-color: rgba(122, 215, 255, 0.6);
-  color: #072035;
+  background: #f7cd42;
+  border-color: #e5b832;
+  color: #0d1f38;
+  transform: translateY(-2px);
 }
 
 .lobby-rounds--disabled {
@@ -1024,7 +1057,7 @@ body.in-game #app {
   border-radius: 999px;
   font-weight: 600;
   letter-spacing: 0.05em;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
   z-index: 10000;
 }
 
@@ -1045,10 +1078,10 @@ body.in-game #app {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #8fb7ff;
-  border: 1px solid rgba(143, 183, 255, 0.4);
+  color: #dfe3ea;
   border-radius: 999px;
   padding: 2px 8px;
+  background: #8c929e;
 }
 
 .lobby-player__badge--spectator {
@@ -1057,21 +1090,24 @@ body.in-game #app {
 }
 
 .lobby-player__kick {
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffb0b0;
+  background: #ff7272;
+  color: #0d1f38;
   text-transform: uppercase;
   font-size: 11px;
   letter-spacing: 0.08em;
-  border-radius: 6px;
-  padding: 4px 8px;
+  border-radius: 999px;
+  padding: 2px 10px;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  font-weight: 800;
+  border: none;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
 }
 
 .lobby-player__kick:hover {
-  background: rgba(255, 0, 0, 0.15);
-  border-color: rgba(255, 0, 0, 0.4);
+  background: #ff8a8a;
+  border-color: #ff8a8a;
+  color: #0d1f38;
+  transform: translateY(-1px);
 }
 
 .player__kick-icon {

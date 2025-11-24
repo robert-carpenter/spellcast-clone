@@ -1014,7 +1014,7 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const lobbyDivider = document.createElement("hr");
   lobbyDivider.className = "lobby-divider";
 
-  const lobbyPlayersList = document.createElement("ul");
+  const lobbyPlayersList = document.createElement("div");
   lobbyPlayersList.className = "lobby-players";
   const lobbyPlayersHeader = document.createElement("h3");
   lobbyPlayersHeader.className = "lobby-players__heading";
