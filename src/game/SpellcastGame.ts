@@ -85,6 +85,7 @@ export class SpellcastGame {
   private inputTarget: HTMLElement;
   private wasMyTurn = false;
   private compactLayoutQuery = window.matchMedia("(max-width: 300px), (max-height: 320px)");
+  private wordBoxConfettiTimer?: number;
   private turnStartTime = performance.now();
   private turnTimerId: number | null = null;
   private turnTimerEl?: HTMLElement;
@@ -767,8 +768,77 @@ export class SpellcastGame {
     this.wordBox.classList.remove("word-box--valid", "word-box--invalid");
     if (state === true) {
       this.wordBox.classList.add("word-box--valid");
+      this.startWordBoxConfetti();
     } else if (state === false) {
       this.wordBox.classList.add("word-box--invalid");
+      this.stopWordBoxConfetti();
+    } else {
+      this.stopWordBoxConfetti();
+    }
+  }
+
+  private startWordBoxConfetti() {
+    if (this.wordBoxConfettiTimer != null) return;
+    this.emitWordBoxParticles();
+    this.wordBoxConfettiTimer = window.setInterval(() => this.emitWordBoxParticles(), 650);
+  }
+
+  private stopWordBoxConfetti() {
+    if (this.wordBoxConfettiTimer != null) {
+      window.clearInterval(this.wordBoxConfettiTimer);
+      this.wordBoxConfettiTimer = undefined;
+    }
+  }
+
+  private emitWordBoxParticles() {
+    const particleCount = 18;
+    const colors = ["#ffffff", "#e7f2ff", "#ffd780"];
+    for (let i = 0; i < particleCount; i += 1) {
+      const particle = document.createElement("span");
+      particle.className = "word-box__particle";
+
+      const edge = Math.floor(Math.random() * 4);
+      const pos = Math.random();
+      let x = 50;
+      let y = 50;
+      let dx = 0;
+      let dy = 0;
+
+      if (edge === 0) {
+        // top
+        x = pos * 100;
+        y = 0;
+        dx = (Math.random() - 0.5) * 0.6;
+        dy = -1;
+      } else if (edge === 1) {
+        // right
+        x = 100;
+        y = pos * 100;
+        dx = 1;
+        dy = (Math.random() - 0.5) * 0.6;
+      } else if (edge === 2) {
+        // bottom
+        x = pos * 100;
+        y = 100;
+        dx = (Math.random() - 0.5) * 0.6;
+        dy = 1;
+      } else {
+        // left
+        x = 0;
+        y = pos * 100;
+        dx = -1;
+        dy = (Math.random() - 0.5) * 0.6;
+      }
+
+      particle.style.left = `${x}%`;
+      particle.style.top = `${y}%`;
+      particle.style.setProperty("--dx", dx.toString());
+      particle.style.setProperty("--dy", dy.toString());
+      particle.style.setProperty("--particle-color", colors[Math.floor(Math.random() * colors.length)]);
+      particle.style.animationDelay = `${Math.random() * 0.2}s`;
+
+      this.wordBox.appendChild(particle);
+      window.setTimeout(() => particle.remove(), 1000);
     }
   }
 

@@ -1,6 +1,7 @@
 import "./style.css";
 import { SpellcastGame, InitialRoomState, MultiplayerController } from "./game/SpellcastGame";
 import dictionaryRaw from "./game/dictionary.txt?raw";
+import logoUrl from "./assets/logo.png";
 import {
   createRoom,
   joinRoom,
@@ -925,9 +926,10 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const menuView = document.createElement("div");
   menuView.className = "landing-view__menu";
 
-  const menuTitle = document.createElement("h1");
-  menuTitle.textContent = "Spellcast Clone";
-  menuTitle.className = "landing-menu__title";
+  const menuLogo = document.createElement("img");
+  menuLogo.src = logoUrl;
+  menuLogo.alt = "Words & Wizards";
+  menuLogo.className = "landing-menu__logo";
 
   const menuSubtitle = document.createElement("p");
   menuSubtitle.className = "landing-menu__subtitle";
@@ -943,6 +945,10 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const playOfflineBtn = document.createElement("button");
   playOfflineBtn.className = "landing-menu__btn";
   playOfflineBtn.textContent = "Play Offline";
+
+  const primaryRow = document.createElement("div");
+  primaryRow.className = "landing-menu__primary-row";
+  primaryRow.append(playOnlineBtn, playOfflineBtn);
 
   const joinWithCodeBtn = document.createElement("button");
   joinWithCodeBtn.className = "landing-menu__btn";
@@ -962,14 +968,13 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   sessionTag.style.display = "none";
 
   menuActions.append(
-    playOnlineBtn,
-    playOfflineBtn,
+    primaryRow,
     joinWithCodeBtn,
     loginBtn,
     logoutBtn,
     sessionTag
   );
-  menuView.append(menuTitle, menuSubtitle, menuActions);
+  menuView.append(menuLogo, menuSubtitle, menuActions);
   registerView("menu", menuView);
 
   // Create Room view
