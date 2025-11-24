@@ -265,6 +265,9 @@ export class WordBoard extends Group {
         this.updateMultiplierBadge(tile);
       });
       if (this.wordMultiplierControl === "local") {
+        if (this.wordMultiplierEnabled) {
+          this.roundWordTileId = this.pickRoundWordTile(true);
+        }
         this.applyRoundWordMultiplier();
       } else {
         this.tiles.forEach((tile) => this.updateWordMultiplierBadge(tile));
@@ -313,7 +316,7 @@ export class WordBoard extends Group {
       this.updateSwapTint(tile);
     });
 
-    this.ensureMinimumVowels();
+    this.ensureMinimumVowels(MIN_VOWELS, tiles);
     this.ensureMultiplier(tiles);
     if (this.wordMultiplierControl === "local") {
       this.applyRoundWordMultiplier();
@@ -483,12 +486,13 @@ export class WordBoard extends Group {
     }
   }
 
-  private ensureMinimumVowels(target = MIN_VOWELS) {
-    if (!this.tiles.length) return;
-    const desired = Math.min(target, this.tiles.length);
-    const current = this.tiles.reduce((count, tile) => count + (this.isVowel(tile.letter) ? 1 : 0), 0);
+  private ensureMinimumVowels(target = MIN_VOWELS, scope?: Tile[]) {
+    const pool = scope && scope.length ? scope : this.tiles;
+    if (!pool.length) return;
+    const desired = Math.min(target, pool.length);
+    const current = pool.reduce((count, tile) => count + (this.isVowel(tile.letter) ? 1 : 0), 0);
     if (current >= desired) return;
-    const candidates = this.tiles.filter((tile) => !this.isVowel(tile.letter));
+    const candidates = pool.filter((tile) => !this.isVowel(tile.letter));
     if (!candidates.length) return;
     this.shuffleArray(candidates);
     const needed = Math.min(desired - current, candidates.length);

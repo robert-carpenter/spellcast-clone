@@ -1,4 +1,4 @@
-import { GEM_TARGET, LETTER_VALUES, MIN_VOWELS, VOWELS } from "../shared/constants.js";
+import { GEM_TARGET, LETTER_COUNTS, LETTER_VALUES, MIN_VOWELS, VOWELS } from "../shared/constants.js";
 import { GameSnapshot, LastSubmission, TileModel } from "../shared/gameTypes.js";
 import { GameState, Player, Room } from "./types.js";
 
@@ -276,13 +276,15 @@ function createTiles(
   wordMultiplierEnabled: boolean
 ): TileModel[] {
   const tiles: TileModel[] = [];
+  const bag = buildLetterBag();
   for (let y = 0; y < BOARD_ROWS; y += 1) {
     for (let x = 0; x < BOARD_COLS; x += 1) {
+      const draw = drawLetterFromBag(bag);
       tiles.push({
         id: tileId(x, y),
         x,
         y,
-        letter: randomLetter(),
+        letter: draw.letter,
         hasGem: false,
         multiplier: "none",
         wordMultiplier: "none"
@@ -290,26 +292,37 @@ function createTiles(
     }
   }
   assignRandomGems(tiles);
-  ensureMinimumVowels(tiles);
+  ensureMinimumVowels(tiles, MIN_VOWELS, bag);
   if (multipliersEnabled) {
     ensureLetterMultiplier(tiles);
   }
   if (wordMultiplierEnabled) {
-    ensureWordMultiplier(tiles);
+    ensureWordMultiplier({
+      tiles,
+      wordMultiplierEnabled: true,
+      roundWordTileId: undefined
+    } as GameState);
   }
   return tiles;
 }
 
 function refreshTiles(game: GameState, tiles: TileModel[]) {
+  const bag = buildLetterBag();
+  const refreshIds = new Set(tiles.map((t) => t.id));
+  game.tiles.forEach((tile) => {
+    if (!refreshIds.has(tile.id)) {
+      consumeLetterFromBag(bag, tile.letter);
+    }
+  });
   tiles.forEach((tile: TileModel) => {
-    tile.letter = randomLetter();
+    const draw = drawLetterFromBag(bag);
+    tile.letter = draw.letter;
     tile.hasGem = false;
     tile.multiplier = "none";
   });
   topUpGems(game.tiles);
   applyRoundWordTile(game);
-  // TODO: we need to ensure vowels but only limited to the tiles that were collected. WEe dont want to refresh any other tiles.
-  ensureMinimumVowels(game.tiles);
+  ensureMinimumVowels(tiles, Math.min(MIN_VOWELS, tiles.length), bag);
 }
 
 function assignMultipliers(game: GameState) {
@@ -371,15 +384,17 @@ export function advanceTurn(room: Room) {
 }
 
 function refreshAllTiles(game: GameState) {
+  const bag = buildLetterBag();
   game.tiles.forEach((tile: TileModel) => {
-    tile.letter = randomLetter();
+    const draw = drawLetterFromBag(bag);
+    tile.letter = draw.letter;
     tile.hasGem = false;
     tile.multiplier = "none";
     tile.wordMultiplier = "none";
   });
   assignRandomGems(game.tiles);
   applyRoundWordTile(game);
-  ensureMinimumVowels(game.tiles);
+  ensureMinimumVowels(game.tiles, MIN_VOWELS, bag);
 }
 
 function determineWinner(room: Room) {
@@ -446,7 +461,7 @@ function topUpGems(tiles: TileModel[], target = GEM_TARGET) {
   }
 }
 
-function ensureMinimumVowels(tiles: TileModel[], target = MIN_VOWELS) {
+function ensureMinimumVowels(tiles: TileModel[], target = MIN_VOWELS, bag?: Map<string, number>) {
   if (!tiles.length) return;
   const desired = Math.min(target, tiles.length);
   const current = tiles.reduce((count, tile) => count + (isVowel(tile.letter) ? 1 : 0), 0);
@@ -456,7 +471,13 @@ function ensureMinimumVowels(tiles: TileModel[], target = MIN_VOWELS) {
   shuffleArray(pool);
   const needed = Math.min(desired - current, pool.length);
   for (let i = 0; i < needed; i += 1) {
-    pool[i].letter = randomVowel();
+    if (bag) {
+      returnLetterToBag(bag, pool[i].letter);
+      const draw = drawLetterFromBag(bag, (letter) => isVowel(letter));
+      pool[i].letter = draw.letter;
+    } else {
+      pool[i].letter = randomVowel();
+    }
   }
 }
 
@@ -487,11 +508,71 @@ function selectRoundWordTile(game: GameState, forceNew = false) {
   applyRoundWordTile(game);
 }
 
+function ensureWordMultiplier(game: GameState) {
+  if (!game.wordMultiplierEnabled) return;
+  const hasTarget =
+    game.roundWordTileId && game.tiles.some((tile) => tile.id === game.roundWordTileId);
+  if (hasTarget) {
+    applyRoundWordTile(game);
+    return;
+  }
+  selectRoundWordTile(game, true);
+}
+
 function applyRoundWordTile(game: GameState) {
   const targetId = game.wordMultiplierEnabled ? game.roundWordTileId : undefined;
   game.tiles.forEach((tile) => {
     tile.wordMultiplier = targetId && tile.id === targetId ? "doubleWord" : "none";
   });
+}
+
+function buildLetterBag(): Map<string, number> {
+  const bag = new Map<string, number>();
+  Object.entries(LETTER_COUNTS).forEach(([letter, count]) => {
+    bag.set(letter.toUpperCase(), Math.max(0, count ?? 0));
+  });
+  return bag;
+}
+
+function normalizeLetterKey(letter: string): string {
+  return (letter ?? "").trim().charAt(0).toUpperCase();
+}
+
+function consumeLetterFromBag(bag: Map<string, number>, letter: string): boolean {
+  const key = normalizeLetterKey(letter);
+  const current = bag.get(key);
+  if (typeof current !== "number" || current <= 0) return false;
+  bag.set(key, current - 1);
+  return true;
+}
+
+function returnLetterToBag(bag: Map<string, number>, letter: string) {
+  const key = normalizeLetterKey(letter);
+  if (!key) return;
+  bag.set(key, (bag.get(key) ?? 0) + 1);
+}
+
+function drawLetterFromBag(
+  bag: Map<string, number>,
+  filter?: (letter: string) => boolean
+): { letter: string; fromBag: boolean } {
+  const entries = Array.from(bag.entries()).filter(([letter, count]) => {
+    if (count <= 0) return false;
+    return filter ? filter(letter) : true;
+  });
+  const total = entries.reduce((sum, [, count]) => sum + count, 0);
+  if (total > 0 && entries.length) {
+    const target = Math.random() * total;
+    let cumulative = 0;
+    for (const [letter, count] of entries) {
+      cumulative += count;
+      if (target <= cumulative) {
+        consumeLetterFromBag(bag, letter);
+        return { letter, fromBag: true };
+      }
+    }
+  }
+  return { letter: randomLetter(), fromBag: false };
 }
 
 function randomLetter(): string {
