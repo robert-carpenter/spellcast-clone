@@ -234,7 +234,7 @@ body.in-game #app {
   display: grid;
   place-items: center;
   background: #123761;
-  border: 2px solid #f7cd42;
+  border: 5px solid #f7cd42;
   border-radius: 12px;
   color: #f7fbff;
   font-size: 20px;
@@ -502,7 +502,7 @@ body.in-game #app {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-height: 70px;
+  min-height: 75px;
 }
 
 .player__nameRow {
@@ -587,7 +587,9 @@ body.in-game #app {
 
 .player--active {
   border-color: rgba(122, 215, 255, 0.5);
+  border-width: 4px;
   box-shadow: none;
+  border-color: #f7cd42;
 }
 
 .player__name {

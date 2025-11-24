@@ -839,7 +839,7 @@ export class SpellcastGame {
     const boardTopPx = (topBound - boardTopWorld) * pxPerWorldY;
     const boxHeight = this.wordBox.offsetHeight || 54;
     const marginPx = 15;
-    const topPx = 0;
+    const topPx = 20;
 
     this.wordBox.style.width = `${boardWidthPx}px`;
     this.wordBox.style.left = `${boardLeftPx}px`;
