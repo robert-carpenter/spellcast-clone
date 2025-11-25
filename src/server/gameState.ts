@@ -209,7 +209,8 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
     tile.hasGem = data.hasGem;
     tile.wordMultiplier = data.wordMultiplier;
   });
-  if (game.wordMultiplierEnabled) {
+  // keep roundWordTileId stable during shuffle; if missing and enabled, pick one
+  if (game.wordMultiplierEnabled && !game.roundWordTileId && game.tiles.length) {
     const random = game.tiles[Math.floor(Math.random() * game.tiles.length)];
     game.roundWordTileId = random?.id;
   }

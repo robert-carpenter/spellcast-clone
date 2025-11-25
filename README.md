@@ -83,7 +83,7 @@ Notes:
 
 ## Gameplay Notes
 
-- **Rounds & Multipliers**: Letter multipliers unlock after Round 1; 2W tile appears from Round 2 and repositions each round. Board state is retained between rounds (no shuffle/refresh), only the 2W tile moves.
+- **Rounds & Multipliers**: Letter multipliers unlock from the start; 2W tile appears from Round 2 and repositions each round. Board state is retained between rounds (no shuffle/refresh), only the 2W tile moves.
 - **Vowels**: Letter bag enforces distribution; refresh logic tops up vowels to the minimum target.
 - **Power-ups**: Shuffle preserves multipliers/gems and repositions letters; Swap lets you pick a letter at the cost of gems.
 
