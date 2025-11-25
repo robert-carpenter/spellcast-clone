@@ -7,6 +7,8 @@ import {
   Vector3,
   WebGLRenderer
 } from "three";
+import { gsap } from "gsap";
+import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 import type { GameSnapshot } from "../shared/gameTypes";
 import { LETTER_VALUES } from "../shared/constants";
 import { WordBoard, Tile } from "./WordBoard";
@@ -91,6 +93,7 @@ export class SpellcastGame {
   private turnTimerEl?: HTMLElement;
   private dictionaryWords: string[];
   private submitAnimContainer?: HTMLElement;
+  private motionRegistered = false;
 
   constructor(
     target: HTMLElement,
@@ -98,9 +101,17 @@ export class SpellcastGame {
     roomState?: InitialRoomState,
     options?: { multiplayer?: MultiplayerController }
   ) {
+    if (!this.motionRegistered) {
+      gsap.registerPlugin(MotionPathPlugin);
+      this.motionRegistered = true;
+    }
     this.container = target;
     this.dictionary = dictionary;
     this.dictionaryWords = Array.from(dictionary).sort();
+    if (!this.motionRegistered) {
+      gsap.registerPlugin(MotionPathPlugin);
+      this.motionRegistered = true;
+    }
     this.multiplayer = options?.multiplayer ?? null;
     this.isMultiplayer = Boolean(roomState ?? options?.multiplayer);
     if (roomState && roomState.players.length) {
@@ -1244,61 +1255,131 @@ export class SpellcastGame {
   private playSubmissionAnimation(selection: Tile[]) {
     if (!this.submitAnimContainer || !selection.length) return;
     const containerRect = this.container.getBoundingClientRect();
-    const boardRect = this.boardViewport.getBoundingClientRect();
     const letterGap = 64;
-    const word = selection.map((t) => t.letter).join("");
     const totalWidth = (selection.length - 1) * letterGap;
     const targetBaseX = containerRect.width / 2 - totalWidth / 2;
     const targetY = containerRect.height * 0.5;
+    const underlineWidth = totalWidth + 20;
 
     this.submitAnimContainer.innerHTML = "";
     const overlay = document.createElement("div");
     overlay.className = "submit-anim__overlay";
     this.submitAnimContainer.appendChild(overlay);
-    const letters: HTMLElement[] = [];
+    const spawnSparkle = (el: SVGCircleElement) => {
+      const dotRect = el.getBoundingClientRect();
+      const x = dotRect.left - containerRect.left;
+      const y = dotRect.top - containerRect.top;
+      const sparkle = document.createElement("div");
+      sparkle.className = "submit-anim__sparkle";
+      sparkle.style.left = `${x}px`;
+      sparkle.style.top = `${y}px`;
+      this.submitAnimContainer?.appendChild(sparkle);
+      setTimeout(() => sparkle.remove(), 500);
+    };
+    const letters: {
+      container: HTMLElement;
+      text: SVGTextElement;
+      guide: SVGPathElement;
+      dot: SVGCircleElement;
+      startX: number;
+      startY: number;
+    }[] = [];
 
+    const drawDuration = 0.4;
     selection.forEach((tile, index) => {
-      const worldPos = tile.mesh.getWorldPosition(new Vector3());
-      const projected = worldPos.clone().project(this.camera);
-      const startX =
-        boardRect.left -
-        containerRect.left +
-        ((projected.x + 1) / 2) * boardRect.width;
-      const startY =
-        boardRect.top -
-        containerRect.top +
-        ((1 - projected.y) / 2) * boardRect.height;
       const targetX = targetBaseX + index * letterGap;
+      const startX = targetX;
+      const startY = targetY;
 
-      const letter = document.createElement("div");
-      letter.className = "submit-anim__letter";
-      letter.textContent = tile.letter;
-      letter.style.left = `${startX}px`;
-      letter.style.top = `${startY}px`;
-      letter.style.transform = "translate(-50%, -50%) scale(0.4)";
-      this.submitAnimContainer.appendChild(letter);
-      letters.push(letter);
+      const entry = this.createAnimatedLetter(tile.letter, startX, startY);
+      this.submitAnimContainer.appendChild(entry.container);
+      letters.push({ ...entry, startX, startY });
 
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          letter.style.transform = `translate(${targetX - startX}px, ${targetY - startY}px) scale(1)`;
-          letter.style.opacity = "1";
-        }, 110 * index);
+      
+      const delay = index * drawDuration;
+      gsap.to(entry.container, {
+        scale: 1,
+        opacity: 1,
+        duration: 0.2,
+        ease: "power2.out",
+        delay
+      });
+      gsap.to(entry.text, {
+        strokeDashoffset: 0,
+        duration: drawDuration,
+        ease: "power1.inOut",
+        delay: delay + 0.05,
+        onComplete: () => entry.container.classList.add("submit-anim__letter--filled")
+      });
+      gsap.to(entry.text, {
+        fillOpacity: 1,
+        duration: 0.3,
+        delay: delay + drawDuration - 0.05
+      });
+      gsap.to(entry.dot, {
+        opacity: 1,
+        duration: 0.05,
+        delay
+      });
+      gsap.to(entry.dot, {
+        motionPath: {
+          path: entry.guide,
+          align: entry.guide,
+          autoRotate: false,
+          alignOrigin: [0.5, 0.5]
+        },
+        duration: drawDuration,
+        ease: "power1.inOut",
+        delay: delay + 0.05,
+        onUpdate: () => spawnSparkle(entry.dot),
+        onComplete: () => (entry.dot.style.opacity = "0")
       });
     });
 
-    const spell = document.createElement("div");
-    spell.className = "submit-anim__spell";
-    const spellWidth = totalWidth + letterGap * 0.6;
-    spell.style.width = `${spellWidth}px`;
-    spell.style.left = `${targetBaseX - (spellWidth - totalWidth) / 2}px`;
-    spell.style.top = `${targetY + 60}px`;
-    this.submitAnimContainer.appendChild(spell);
+    const underlineSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    underlineSvg.setAttribute("width", `${underlineWidth}`);
+    underlineSvg.setAttribute("height", "22");
+    underlineSvg.style.position = "absolute";
+    underlineSvg.style.left = `${targetBaseX - 10}px`;
+    underlineSvg.style.top = `${targetY + 52}px`;
+    underlineSvg.style.overflow = "visible";
+    underlineSvg.style.opacity = "0";
 
-    setTimeout(() => {
-      spell.classList.add("run");
-    }, 156 * selection.length);
+    const underline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const underlineLen = underlineWidth - 20;
+    underline.setAttribute("x1", "10");
+    underline.setAttribute("x2", `${underlineWidth - 10}`);
+    underline.setAttribute("y1", "12");
+    underline.setAttribute("y2", "12");
+    underline.setAttribute("stroke", "#f7cd42");
+    underline.setAttribute("stroke-width", "6");
+    underline.setAttribute("stroke-linecap", "round");
+    underline.setAttribute("stroke-dasharray", `${underlineLen}`);
+    underline.setAttribute("stroke-dashoffset", `${underlineLen}`);
+    underlineSvg.appendChild(underline);
+    this.submitAnimContainer.appendChild(underlineSvg);
 
+    const underlineDelay = selection.length * drawDuration + 0.15;
+    gsap.to(underlineSvg, {
+      opacity: 1,
+      duration: 0.05,
+      delay: underlineDelay
+    });
+    gsap.to(underline, {
+      strokeDashoffset: 0,
+      duration: 0.45,
+      ease: "power1.inOut",
+      delay: underlineDelay
+    });
+    const underlineFade = () => {
+      gsap.to(underlineSvg, {
+        opacity: 0,
+        duration: 0.35,
+        ease: "power1.in"
+      });
+    };
+
+    const flyDelayMs = Math.floor(620 * selection.length + 600);
     setTimeout(() => {
       const targetCard = this.playersListEl.querySelector<HTMLElement>(
         `[data-player-id="${this.players[this.currentPlayerIndex]?.id}"]`
@@ -1311,70 +1392,153 @@ export class SpellcastGame {
         ? targetRect.top - containerRect.top + targetRect.height / 2
         : -120;
 
-      letters.forEach((letter) => {
-        letter.style.transition = "transform 650ms ease-in, opacity 390ms ease-in";
-        letter.style.transform = `translate(${targetCenterX - parseFloat(letter.style.left)}px, ${targetCenterY - parseFloat(letter.style.top)}px) scale(0.6)`;
-        letter.style.opacity = "0";
+      letters.forEach((entry, idx) => {
+        gsap.to(entry.container, {
+          x: targetCenterX - entry.startX,
+          y: targetCenterY - entry.startY,
+          scale: 0.6,
+          opacity: 0,
+          duration: 0.75,
+          ease: "power1.in",
+          delay: idx * 0.06
+        });
       });
-    }, 156 * selection.length + 1500);
+      underlineFade();
+    }, flyDelayMs);
 
     setTimeout(() => {
       this.submitAnimContainer.innerHTML = "";
-    }, 156 * selection.length + 2600);
+    }, flyDelayMs + 1000);
   }
 
   private playSubmissionWord(word: string, playerId?: string) {
     if (!this.submitAnimContainer || !word) return;
     const containerRect = this.container.getBoundingClientRect();
-    const boardRect = this.boardViewport.getBoundingClientRect();
     const letterGap = 64;
     const lettersArr = word.split("");
     const totalWidth = (lettersArr.length - 1) * letterGap;
     const targetBaseX = containerRect.width / 2 - totalWidth / 2;
     const targetY = containerRect.height * 0.5;
+    const underlineWidth = totalWidth + 20;
 
     this.submitAnimContainer.innerHTML = "";
     const overlay = document.createElement("div");
     overlay.className = "submit-anim__overlay";
     this.submitAnimContainer.appendChild(overlay);
-    const letters: HTMLElement[] = [];
+    const spawnSparkle = (el: SVGCircleElement) => {
+      const dotRect = el.getBoundingClientRect();
+      const x = dotRect.left - containerRect.left;
+      const y = dotRect.top - containerRect.top;
+      const sparkle = document.createElement("div");
+      sparkle.className = "submit-anim__sparkle";
+      sparkle.style.left = `${x}px`;
+      sparkle.style.top = `${y}px`;
+      this.submitAnimContainer?.appendChild(sparkle);
+      setTimeout(() => sparkle.remove(), 500);
+    };
+    const letters: {
+      container: HTMLElement;
+      text: SVGTextElement;
+      guide: SVGPathElement;
+      dot: SVGCircleElement;
+      startX: number;
+      startY: number;
+    }[] = [];
 
     lettersArr.forEach((char, index) => {
-      const startX =
-        boardRect.left - containerRect.left + boardRect.width / 2 + (Math.random() - 0.5) * 140;
-      const startY =
-        boardRect.top - containerRect.top + boardRect.height / 2 + (Math.random() - 0.5) * 120;
       const targetX = targetBaseX + index * letterGap;
+      const startX = targetX;
+      const startY = targetY;
 
-      const letter = document.createElement("div");
-      letter.className = "submit-anim__letter";
-      letter.textContent = char;
-      letter.style.left = `${startX}px`;
-      letter.style.top = `${startY}px`;
-      letter.style.transform = "translate(-50%, -50%) scale(0.4)";
-      this.submitAnimContainer.appendChild(letter);
-      letters.push(letter);
+      const entry = this.createAnimatedLetter(char, startX, startY);
+      this.submitAnimContainer.appendChild(entry.container);
+      letters.push({ ...entry, startX, startY });
 
-      requestAnimationFrame(() => {
-        setTimeout(() => {
-          letter.style.transform = `translate(${targetX - startX}px, ${targetY - startY}px) scale(1)`;
-          letter.style.opacity = "1";
-        }, 110 * index);
+      const drawDuration = 0.25;
+      const delay = index * drawDuration;
+      gsap.to(entry.container, {
+        scale: 1,
+        opacity: 1,
+        duration: 0.2,
+        ease: "power2.out",
+        delay
+      });
+      gsap.to(entry.text, {
+        strokeDashoffset: 0,
+        duration: drawDuration,
+        ease: "power1.inOut",
+        delay: delay + 0.05,
+        onComplete: () => entry.container.classList.add("submit-anim__letter--filled")
+      });
+      gsap.to(entry.text, {
+        fillOpacity: 1,
+        duration: 0.3,
+        delay: delay + drawDuration - 0.05
+      });
+      gsap.to(entry.dot, {
+        opacity: 1,
+        duration: 0.05,
+        delay
+      });
+      gsap.to(entry.dot, {
+        motionPath: {
+          path: entry.guide,
+          align: entry.guide,
+          autoRotate: false,
+          alignOrigin: [0.5, 0.5]
+        },
+        duration: drawDuration,
+        ease: "power1.inOut",
+        delay: delay + 0.05,
+        onUpdate: () => spawnSparkle(entry.dot),
+        onComplete: () => (entry.dot.style.opacity = "0")
       });
     });
 
-    const spell = document.createElement("div");
-    spell.className = "submit-anim__spell";
-    const spellWidth = totalWidth + letterGap * 0.6;
-    spell.style.width = `${spellWidth}px`;
-    spell.style.left = `${targetBaseX - (spellWidth - totalWidth) / 2}px`;
-    spell.style.top = `${targetY + 60}px`;
-    this.submitAnimContainer.appendChild(spell);
+    const underlineSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    underlineSvg.setAttribute("width", `${underlineWidth}`);
+    underlineSvg.setAttribute("height", "22");
+    underlineSvg.style.position = "absolute";
+    underlineSvg.style.left = `${targetBaseX - 10}px`;
+    underlineSvg.style.top = `${targetY + 52}px`;
+    underlineSvg.style.overflow = "visible";
+    underlineSvg.style.opacity = "0";
 
-    setTimeout(() => {
-      spell.classList.add("run");
-    }, 156 * lettersArr.length);
+    const underline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    const underlineLen = underlineWidth - 20;
+    underline.setAttribute("x1", "10");
+    underline.setAttribute("x2", `${underlineWidth - 10}`);
+    underline.setAttribute("y1", "12");
+    underline.setAttribute("y2", "12");
+    underline.setAttribute("stroke", "#f7cd42");
+    underline.setAttribute("stroke-width", "6");
+    underline.setAttribute("stroke-linecap", "round");
+    underline.setAttribute("stroke-dasharray", `${underlineLen}`);
+    underline.setAttribute("stroke-dashoffset", `${underlineLen}`);
+    underlineSvg.appendChild(underline);
+    this.submitAnimContainer.appendChild(underlineSvg);
 
+    const underlineDelay = lettersArr.length * 0.62 + 0.15;
+    gsap.to(underlineSvg, {
+      opacity: 1,
+      duration: 0.05,
+      delay: underlineDelay
+    });
+    gsap.to(underline, {
+      strokeDashoffset: 0,
+      duration: 0.45,
+      ease: "power1.inOut",
+      delay: underlineDelay
+    });
+    const underlineFade = () => {
+      gsap.to(underlineSvg, {
+        opacity: 0,
+        duration: 0.35,
+        ease: "power1.in"
+      });
+    };
+
+    const flyDelayMs = Math.floor(620 * lettersArr.length + 600);
     setTimeout(() => {
       const targetCard = playerId
         ? this.playersListEl.querySelector<HTMLElement>(`[data-player-id="${playerId}"]`)
@@ -1387,16 +1551,88 @@ export class SpellcastGame {
         ? targetRect.top - containerRect.top + targetRect.height / 2
         : -120;
 
-      letters.forEach((letter) => {
-        letter.style.transition = "transform 650ms ease-in, opacity 390ms ease-in";
-        letter.style.transform = `translate(${targetCenterX - parseFloat(letter.style.left)}px, ${targetCenterY - parseFloat(letter.style.top)}px) scale(0.6)`;
-        letter.style.opacity = "0";
+      letters.forEach((entry, idx) => {
+        gsap.to(entry.container, {
+          x: targetCenterX - entry.startX,
+          y: targetCenterY - entry.startY,
+          scale: 0.6,
+          opacity: 0,
+          duration: 0.75,
+          ease: "power1.in",
+          delay: idx * 0.06
+        });
       });
-    }, 156 * lettersArr.length + 1500);
+      underlineFade();
+    }, flyDelayMs);
 
     setTimeout(() => {
       this.submitAnimContainer.innerHTML = "";
-    }, 156 * lettersArr.length + 2600);
+    }, flyDelayMs + 1200);
+  }
+
+  private createAnimatedLetter(char: string, startX: number, startY: number) {
+    const container = document.createElement("div");
+    container.className = "submit-anim__letter";
+    container.style.left = `${startX}px`;
+    container.style.top = `${startY}px`;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("viewBox", "0 0 120 140");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+
+    const defs = document.createElementNS(svgNS, "defs");
+    const filter = document.createElementNS(svgNS, "filter");
+    filter.setAttribute("id", "submit-dot-glow");
+    const feGaussian = document.createElementNS(svgNS, "feGaussianBlur");
+    feGaussian.setAttribute("stdDeviation", "3");
+    feGaussian.setAttribute("result", "blur");
+    filter.appendChild(feGaussian);
+    defs.appendChild(filter);
+
+    const guide = document.createElementNS(svgNS, "path");
+    guide.setAttribute("d", "M10 90 C40 10 80 130 110 60");
+    guide.setAttribute("fill", "none");
+    guide.setAttribute("stroke", "transparent");
+    guide.setAttribute("stroke-width", "2");
+
+    const text = document.createElementNS(svgNS, "text");
+    text.textContent = char;
+    text.setAttribute("x", "50%");
+    text.setAttribute("y", "68%");
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("dominant-baseline", "middle");
+    text.setAttribute("pathLength", "1");
+    text.setAttribute("fill", "#f7fbff");
+    text.setAttribute("fill-opacity", "0");
+    text.setAttribute("stroke", "#f7cd42");
+    text.setAttribute("stroke-width", "3");
+    text.setAttribute("stroke-linejoin", "round");
+    text.setAttribute("stroke-dasharray", "1");
+    text.setAttribute("stroke-dashoffset", "1");
+    text.setAttribute(
+      "style",
+      "font: 900 78px 'Play', 'Segoe UI', sans-serif; letter-spacing: 0.1em;"
+    );
+
+    const dot = document.createElementNS(svgNS, "circle");
+    dot.setAttribute("r", "6");
+    dot.setAttribute("fill", "#f7cd42");
+    dot.setAttribute("cx", "10");
+    dot.setAttribute("cy", "80");
+    dot.setAttribute("opacity", "0");
+    dot.setAttribute("filter", "url(#submit-dot-glow)");
+
+    svg.appendChild(defs);
+    svg.appendChild(guide);
+    svg.appendChild(text);
+    svg.appendChild(dot);
+    container.appendChild(svg);
+    container.style.transform = "translate(-50%, -50%) scale(0.4)";
+    container.style.opacity = "0";
+
+    return { container, text, guide, dot };
   }
 
   public syncRoomPlayers(
