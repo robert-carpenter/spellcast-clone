@@ -94,6 +94,7 @@ export class SpellcastGame {
   private dictionaryWords: string[];
   private submitAnimContainer?: HTMLElement;
   private motionRegistered = false;
+  private lastSparkleTime = 0;
 
   constructor(
     target: HTMLElement,
@@ -1266,15 +1267,20 @@ export class SpellcastGame {
     overlay.className = "submit-anim__overlay";
     this.submitAnimContainer.appendChild(overlay);
     const spawnSparkle = (el: SVGCircleElement) => {
+      const now = performance.now();
+      if (now - this.lastSparkleTime < 45) return;
+      this.lastSparkleTime = now;
       const dotRect = el.getBoundingClientRect();
       const x = dotRect.left - containerRect.left;
       const y = dotRect.top - containerRect.top;
-      const sparkle = document.createElement("div");
-      sparkle.className = "submit-anim__sparkle";
-      sparkle.style.left = `${x}px`;
-      sparkle.style.top = `${y}px`;
-      this.submitAnimContainer?.appendChild(sparkle);
-      setTimeout(() => sparkle.remove(), 500);
+      requestAnimationFrame(() => {
+        const sparkle = document.createElement("div");
+        sparkle.className = "submit-anim__sparkle";
+        sparkle.style.left = `${x}px`;
+        sparkle.style.top = `${y}px`;
+        this.submitAnimContainer?.appendChild(sparkle);
+        setTimeout(() => sparkle.remove(), 420);
+      });
     };
     const letters: {
       container: HTMLElement;
@@ -1426,15 +1432,20 @@ export class SpellcastGame {
     overlay.className = "submit-anim__overlay";
     this.submitAnimContainer.appendChild(overlay);
     const spawnSparkle = (el: SVGCircleElement) => {
+      const now = performance.now();
+      if (now - this.lastSparkleTime < 45) return;
+      this.lastSparkleTime = now;
       const dotRect = el.getBoundingClientRect();
       const x = dotRect.left - containerRect.left;
       const y = dotRect.top - containerRect.top;
-      const sparkle = document.createElement("div");
-      sparkle.className = "submit-anim__sparkle";
-      sparkle.style.left = `${x}px`;
-      sparkle.style.top = `${y}px`;
-      this.submitAnimContainer?.appendChild(sparkle);
-      setTimeout(() => sparkle.remove(), 500);
+      requestAnimationFrame(() => {
+        const sparkle = document.createElement("div");
+        sparkle.className = "submit-anim__sparkle";
+        sparkle.style.left = `${x}px`;
+        sparkle.style.top = `${y}px`;
+        this.submitAnimContainer?.appendChild(sparkle);
+        setTimeout(() => sparkle.remove(), 420);
+      });
     };
     const letters: {
       container: HTMLElement;

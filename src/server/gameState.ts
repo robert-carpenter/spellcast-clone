@@ -322,7 +322,14 @@ function refreshTiles(game: GameState, tiles: TileModel[]) {
   });
   topUpGems(game.tiles);
   applyRoundWordTile(game);
-  ensureMinimumVowels(tiles, Math.min(MIN_VOWELS, tiles.length), bag);
+  const currentVowels = game.tiles.reduce(
+    (count, t) => count + (isVowel(t.letter) ? 1 : 0),
+    0
+  );
+  const missing = Math.max(0, MIN_VOWELS - currentVowels);
+  if (missing > 0) {
+    ensureMinimumVowels(tiles, Math.min(missing, tiles.length), bag);
+  }
 }
 
 function assignMultipliers(game: GameState) {
@@ -424,7 +431,6 @@ export function advanceRound(room: Room) {
     if (!game.wordMultiplierEnabled) {
       game.roundWordTileId = undefined;
     }
-    refreshAllTiles(game);
     assignMultipliers(game);
     if (game.wordMultiplierEnabled) {
       selectRoundWordTile(game, true);

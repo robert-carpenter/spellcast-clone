@@ -316,7 +316,14 @@ export class WordBoard extends Group {
       this.updateSwapTint(tile);
     });
 
-    this.ensureMinimumVowels(MIN_VOWELS, tiles);
+    const currentVowels = this.tiles.reduce(
+      (count, t) => count + (this.isVowel(t.letter) ? 1 : 0),
+      0
+    );
+    const missing = Math.max(0, MIN_VOWELS - currentVowels);
+    if (missing > 0) {
+      this.ensureMinimumVowels(missing, tiles);
+    }
     this.ensureMultiplier(tiles);
     if (this.wordMultiplierControl === "local") {
       this.applyRoundWordMultiplier();
