@@ -739,10 +739,7 @@ export class SpellcastGame {
           mode: this.isMultiplayer ? "sync" : "local",
           round: this.round
         });
-        this.board.refreshTiles(this.board.allTiles(), true);
-        this.board.clearSelection();
-        this.updateWord([]);
-        this.broadcastSelection([]);
+        // keep board state between rounds; only word multiplier moves via setWordMultiplierEnabled
       } else {
         this.endGame();
       }

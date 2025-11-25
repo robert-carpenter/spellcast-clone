@@ -431,12 +431,12 @@ export function advanceRound(room: Room) {
     if (!game.wordMultiplierEnabled) {
       game.roundWordTileId = undefined;
     }
-    assignMultipliers(game);
     if (game.wordMultiplierEnabled) {
       selectRoundWordTile(game, true);
     } else {
       applyRoundWordTile(game);
     }
+    ensureMinimumVowels(game.tiles, MIN_VOWELS);
     game.turnStartedAt = Date.now();
   } else {
     game.completed = true;
