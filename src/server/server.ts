@@ -1,6 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
-import express, { Request, Response } from "express";
+import express from "express";
+import type { Request, Response } from "express";
 import { randomUUID, createHmac, timingSafeEqual } from "crypto";
 import { createServer } from "http";
 import type { Server as HttpServer } from "http";
@@ -18,7 +19,7 @@ import {
   shuffleBoard,
   startNewGame,
   submitWord
-} from "./gameState.js";
+} from "../shared/rules.js";
 import { Room, Player } from "./types.js";
 
 interface BackendOptions {
@@ -51,8 +52,10 @@ const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const DISCORD_API = "https://discord.com/api";
 const SESSION_SECRET = process.env.SESSION_SECRET || "changeme";
 
+type ExpressApp = ReturnType<typeof express>;
+
 export function initializeBackend(
-  app: express.Express,
+  app: ExpressApp,
   httpServer: HttpServer,
   options: BackendOptions = {}
 ) {
@@ -73,7 +76,7 @@ export function initializeBackend(
   return { io };
 }
 
-function registerHttpRoutes(app: express.Express, options: BackendOptions) {
+function registerHttpRoutes(app: ExpressApp, options: BackendOptions) {
   const serveClient = options.serveClient ?? true;
   const candidateDirs = [
     options.clientDistPath,
@@ -92,7 +95,7 @@ function registerHttpRoutes(app: express.Express, options: BackendOptions) {
     res.json({ status: "ok" });
   });
 
-  app.get("/auth/discord/login", (req: Request, res: Response) => {
+  app.get("/auth/discord/login", (_req: Request, res: Response) => {
     const clientId = process.env.DISCORD_CLIENT_ID;
     const redirectUri = process.env.DISCORD_REDIRECT_URI;
     if (!clientId || !redirectUri) {
@@ -585,11 +588,12 @@ function safeEqual(a: Buffer, b: Buffer): boolean {
 function parseCookies(req: Request): Record<string, string> {
   const header = req.headers.cookie;
   if (!header) return {};
-  return header.split(";").reduce<Record<string, string>>((acc, part) => {
+  const parts = header.split(";");
+  return parts.reduce((acc: Record<string, string>, part: string) => {
     const [key, ...rest] = part.split("=");
     acc[key.trim()] = decodeURIComponent(rest.join("=").trim());
     return acc;
-  }, {});
+  }, {} as Record<string, string>);
 }
 
 function getSessionFromCookie(req: Request, name: string): { id: string; name: string; exp: number; state?: string } | null {
@@ -663,25 +667,26 @@ function removePlayerFromRoom(roomId: string, playerId: string): boolean {
     }
   }
 
-  if (room.game) {
-    if (room.game.swapModePlayerId === playerId) {
-      room.game.swapModePlayerId = undefined;
+  const currentGame = room.game;
+  if (currentGame) {
+    if (currentGame.swapModePlayerId === playerId) {
+      currentGame.swapModePlayerId = undefined;
     }
     if (room.players.length === 0) {
       room.status = "lobby";
       room.game = undefined;
     } else if (wasCurrentPlayer) {
       if (nextTurn) {
-        room.game.currentPlayerIndex = Math.min(nextTurn.index, room.players.length - 1);
+        currentGame.currentPlayerIndex = Math.min(nextTurn.index, room.players.length - 1);
         if (nextTurn.wrapped) {
           advanceRound(room);
         }
       } else {
-        room.game.currentPlayerIndex = 0;
+        currentGame.currentPlayerIndex = 0;
         normalizeCurrentPlayer(room);
       }
     }
-    if (!wasCurrentPlayer) {
+    if (!wasCurrentPlayer && room.game) {
       room.game.currentPlayerIndex = Math.min(preservedIndex, room.players.length - 1);
       normalizeCurrentPlayer(room);
     }

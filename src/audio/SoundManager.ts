@@ -30,8 +30,6 @@ const SOUND_TABLE: Record<SoundEffect, SoundConfig> = {
 class SoundManager {
   private enabled = true;
   private unlocked = false;
-  private unlockHandler?: () => void;
-
   enable() {
     this.enabled = true;
   }
@@ -47,9 +45,7 @@ class SoundManager {
       this.unlocked = true;
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
-      this.unlockHandler = undefined;
     };
-    this.unlockHandler = unlock;
     window.addEventListener("pointerdown", unlock, { once: true });
     window.addEventListener("keydown", unlock, { once: true });
   }

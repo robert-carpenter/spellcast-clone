@@ -18,11 +18,7 @@ import { soundManager } from "./audio/SoundManager";
 
 type RoomStatus = RoomDTO["status"];
 
-const app = document.querySelector<HTMLDivElement>("#app");
-
-if (!app) {
-  throw new Error("App container not found");
-}
+const app = document.querySelector<HTMLDivElement>("#app")!;
 
 const BASE_APP_WIDTH = 1100;
 const BASE_APP_HEIGHT = 620;
@@ -478,8 +474,10 @@ function handleRoomUpdate(room: RoomDTO) {
   knownPlayerIds = new Set(room.players.map((player) => player.id));
   hasPlayerSnapshot = true;
 
+  const currentLobby = lobbyContext;
+
   // Detect if we were removed from the room
-  if (!isLeavingRoom && lobbyContext && !room.players.some((player) => player.id === lobbyContext.playerId)) {
+  if (!isLeavingRoom && currentLobby && !room.players.some((player) => player.id === currentLobby.playerId)) {
     void handleForcedRemoval();
     return;
   }
@@ -490,8 +488,8 @@ function handleRoomUpdate(room: RoomDTO) {
   lastRoomStatus = room.status;
 
   latestRoomSnapshot = room;
-  if (lobbyContext) {
-    lobbyContext.isHost = room.hostId === lobbyContext.playerId;
+  if (currentLobby) {
+    currentLobby.isHost = room.hostId === currentLobby.playerId;
   }
   if (landing.isVisible() && landing.currentView === "lobby") {
     renderLobby(room);

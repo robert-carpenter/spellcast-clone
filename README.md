@@ -12,6 +12,7 @@ A multiplayer and offline word-building game inspired by Boggle/Scrabble mechani
 - **Discord OAuth**: Optional login that auto-fills player name and bypasses name prompts; session persistence with login/logout.
 - **Dictionary Search**: In-game modal to search dictionary entries (min 2 chars).
 - **Kicking/Skipping**: Host-only kick and skip-turn controls with confirmation modals.
+- **Shared rules**: Offline and multiplayer both use the same rule engine (exported from `src/shared/rules.ts`), with tests covering server/offline/shared flows.
 
 ## Tech Stack
 
@@ -99,6 +100,11 @@ Notes:
 - Build with `npm run build`.
 - Set env vars in your hosting platform (e.g., Railway) for server-side values and Discord OAuth.
 - Serve `dist/server/index.mjs` with Node; client assets live in `dist/client`.
+
+## Tests
+
+- Run all tests: `npm test`
+- Coverage includes server, offline adapter, and shared rules (Vitest). Offline adapter tests use a deterministic RNG hook for stability.
 
 ## Testing Tips
 

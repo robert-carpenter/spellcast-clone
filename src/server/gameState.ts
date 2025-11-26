@@ -391,20 +391,6 @@ export function advanceTurn(room: Room) {
   }
 }
 
-function refreshAllTiles(game: GameState) {
-  const bag = buildLetterBag();
-  game.tiles.forEach((tile: TileModel) => {
-    const draw = drawLetterFromBag(bag);
-    tile.letter = draw.letter;
-    tile.hasGem = false;
-    tile.multiplier = "none";
-    tile.wordMultiplier = "none";
-  });
-  assignRandomGems(game.tiles);
-  applyRoundWordTile(game);
-  ensureMinimumVowels(game.tiles, MIN_VOWELS, bag);
-}
-
 function determineWinner(room: Room) {
   const candidates = getActivePlayers(room);
   const pool = candidates.length ? candidates : room.players;

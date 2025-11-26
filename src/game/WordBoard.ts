@@ -527,7 +527,7 @@ export class WordBoard extends Group {
     }
   }
 
-  private createMultiplierBadge(multiplier: Multiplier): Mesh {
+  private createMultiplierBadge(multiplier: Multiplier): Mesh<PlaneGeometry, MeshBasicMaterial> {
     let material = this.badgeMaterials.get(multiplier);
     if (!material) {
       const texture = this.generateBadgeTexture(multiplier);
@@ -537,7 +537,7 @@ export class WordBoard extends Group {
       });
       this.badgeMaterials.set(multiplier, material);
     }
-    const mesh = new Mesh(this.badgeGeometry, material);
+    const mesh = new Mesh<PlaneGeometry, MeshBasicMaterial>(this.badgeGeometry, material);
     mesh.renderOrder = 5;
     return mesh;
   }
@@ -779,7 +779,7 @@ export class WordBoard extends Group {
         map: this.getLetterTexture(data.letter, "base", data.hasGem, multiplier),
         transparent: true
       });
-      const mesh: TileMesh = new Mesh(this.baseGeometry, material);
+      const mesh: TileMesh = new Mesh<PlaneGeometry, MeshBasicMaterial>(this.baseGeometry, material);
       mesh.position.set(data.x * this.tileSize - offsetX, data.y * this.tileSize - offsetY, 0);
       mesh.userData.tileCoordinates = { x: data.x, y: data.y };
 
@@ -833,7 +833,7 @@ export class WordBoard extends Group {
     const clones = moves.map((move) => {
       const cloneMaterial = (move.from.mesh.material as MeshBasicMaterial).clone();
       cloneMaterial.transparent = true;
-      const mesh = new Mesh(this.baseGeometry, cloneMaterial);
+      const mesh = new Mesh<PlaneGeometry, MeshBasicMaterial>(this.baseGeometry, cloneMaterial);
       mesh.position.copy(move.from.mesh.position);
       mesh.renderOrder = move.from.mesh.renderOrder + 1;
       this.add(mesh);

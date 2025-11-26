@@ -8,7 +8,7 @@
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
-    "types": ["vite/client", "types/three"],
+    "types": ["vite/client", "three"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

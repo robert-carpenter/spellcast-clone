@@ -1,15 +1,8 @@
-import {
-  Color,
-  OrthographicCamera,
-  Raycaster,
-  Scene,
-  Vector2,
-  Vector3,
-  WebGLRenderer
-} from "three";
+import { OrthographicCamera, Raycaster, Scene, Vector2, WebGLRenderer } from "three";
 import { gsap } from "gsap";
 import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 import type { GameSnapshot } from "../shared/gameTypes";
+import { OfflineAdapter } from "./offlineAdapter";
 import { LETTER_VALUES } from "../shared/constants";
 import { WordBoard, Tile } from "./WordBoard";
 import { soundManager } from "../audio/SoundManager";
@@ -83,7 +76,6 @@ export class SpellcastGame {
   private serverCompletionHandled = false;
   private pendingSnapshot?: GameSnapshot;
   private lastSubmissionToken?: string;
-  private lastActivePlayerId?: string;
   private inputTarget: HTMLElement;
   private wasMyTurn = false;
   private compactLayoutQuery = window.matchMedia("(max-width: 300px), (max-height: 320px)");
@@ -95,6 +87,26 @@ export class SpellcastGame {
   private submitAnimContainer?: HTMLElement;
   private motionRegistered = false;
   private lastSparkleTime = 0;
+  private offlineAdapter?: OfflineAdapter;
+
+  private syncOfflineSnapshot() {
+    const snap = this.offlineAdapter?.snapshot();
+    if (!snap || !this.offlineAdapter) return;
+    if (!this.playersListEl) {
+      this.pendingSnapshot = snap;
+      return;
+    }
+    const adapterPlayers = this.offlineAdapter.getPlayers();
+    if (adapterPlayers.length) {
+      this.players = adapterPlayers.map((p) => ({
+        ...p,
+        lastWord: this.players.find((pp) => pp.id === p.id)?.lastWord
+      }));
+    }
+    this.applyGameSnapshot(snap);
+    this.updateRoundLabel();
+    this.renderPlayers();
+  }
 
   constructor(
     target: HTMLElement,
@@ -102,10 +114,6 @@ export class SpellcastGame {
     roomState?: InitialRoomState,
     options?: { multiplayer?: MultiplayerController }
   ) {
-    if (!this.motionRegistered) {
-      gsap.registerPlugin(MotionPathPlugin);
-      this.motionRegistered = true;
-    }
     this.container = target;
     this.dictionary = dictionary;
     this.dictionaryWords = Array.from(dictionary).sort();
@@ -162,7 +170,6 @@ export class SpellcastGame {
       const me = this.players.find((player) => player.id === myId);
       this.isSpectator = Boolean(me?.isSpectator);
     }
-    this.lastActivePlayerId = this.players[this.currentPlayerIndex]?.id;
     this.container.innerHTML = "";
     this.container.classList.add("game-shell");
 
@@ -203,12 +210,12 @@ export class SpellcastGame {
     this.updateBoardPlacement();
     if (roomState?.game) {
       this.pendingSnapshot = roomState.game;
-    } else {
-      this.board.setMultipliersEnabled(this.round > 0);
-      this.board.setWordMultiplierEnabled(this.round > 1, {
-        mode: this.isMultiplayer ? "sync" : "local",
-        round: this.round
-      });
+    } else if (!this.isMultiplayer) {
+      this.offlineAdapter = new OfflineAdapter({ totalRounds: this.totalRounds });
+      this.offlineAdapter.seedPlayers(
+        this.players.map((p) => ({ id: p.id, name: p.name, isHost: p.isHost }))
+      );
+      this.pendingSnapshot = this.offlineAdapter.snapshot();
     }
 
     const powerUi = this.createPowerPanel();
@@ -620,25 +627,21 @@ export class SpellcastGame {
       return;
     }
 
-    const points = this.calculateWordScore(selection, word.length >= 6);
-    const gemsEarned = this.board.collectGemsFromSelection();
     const player = this.players[this.currentPlayerIndex];
-
-    player.lastWord = normalizedWord;
-    player.score += points;
-    player.gems += gemsEarned;
+    const tileIds = selection.map((tile) => this.board.getTileId(tile));
+    const result = this.offlineAdapter?.submitWord(player.id, tileIds, this.dictionary);
+    if (!result?.success) {
+      console.warn(result?.error ?? "Submit failed");
+      return;
+    }
     const submissionKey = `${this.round}:${player.id}:${normalizedWord}`;
     this.lastSubmissionToken = submissionKey;
     soundManager.play("word-submit");
     this.playSubmissionAnimation(selection);
-    this.logEvent(
-      `Round ${this.round}: ${player.name} scored ${points} pts${gemsEarned ? ` and earned ${gemsEarned} gem(s)` : ""} with "${word.toUpperCase()}".`
-    );
-    this.board.refreshTiles(selection);
     this.board.clearSelection();
     this.updateWord([]);
     this.broadcastSelection([]);
-    this.advanceTurn();
+    this.syncOfflineSnapshot();
   };
 
   private onShuffle = async () => {
@@ -670,13 +673,16 @@ export class SpellcastGame {
       return;
     }
 
-    player.gems -= 1;
-    this.board.shuffleLetters();
+    const result = this.offlineAdapter?.shuffle(player.id);
+    if (!result?.success) {
+      console.warn(result?.error ?? "Shuffle failed");
+      return;
+    }
+    this.logEvent(`Round ${this.round}: ${player.name} used Shuffle (-1 gem).`);
     this.board.clearSelection();
     this.updateWord([]);
     this.broadcastSelection([]);
-    this.renderPlayers();
-    this.logEvent(`Round ${this.round}: ${player.name} used Shuffle (-1 gem).`);
+    this.syncOfflineSnapshot();
   };
 
   private onResetWord = () => {
@@ -692,6 +698,7 @@ export class SpellcastGame {
       if (this.isMultiplayer && this.multiplayer) {
         this.multiplayer.cancelSwap();
       } else {
+        this.offlineAdapter?.cancelSwap(this.players[this.currentPlayerIndex]?.id ?? "");
         this.exitSwapMode();
       }
       return;
@@ -713,6 +720,11 @@ export class SpellcastGame {
       console.warn("Need 3 gems to swap a letter.");
       return;
     }
+    const swapResult = this.offlineAdapter?.requestSwapMode(player.id);
+    if (!swapResult?.success) {
+      console.warn(swapResult?.error ?? "Swap not available");
+      return;
+    }
     this.swapMode = true;
     this.board.setSwapMode(true);
     this.board.clearSelection();
@@ -725,27 +737,12 @@ export class SpellcastGame {
     this.swapMode = false;
     this.board.setSwapMode(false);
     this.board.setHovered(undefined);
-  }
-
-  private advanceTurn() {
-    const previousId = this.players[this.currentPlayerIndex]?.id;
-    this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
-    if (this.currentPlayerIndex === 0) {
-      if (this.round < this.totalRounds) {
-        this.round += 1;
-        this.updateRoundLabel();
-        this.board.setMultipliersEnabled(this.round > 1);
-        this.board.setWordMultiplierEnabled(this.round > 1, {
-          mode: this.isMultiplayer ? "sync" : "local",
-          round: this.round
-        });
-        // keep board state between rounds; only word multiplier moves via setWordMultiplierEnabled
-      } else {
-        this.endGame();
+    if (!this.isMultiplayer) {
+      const me = this.players[this.currentPlayerIndex];
+      if (me) {
+        this.offlineAdapter?.cancelSwap(me.id);
       }
     }
-    this.onTurnChanged(this.players[this.currentPlayerIndex]?.id, previousId);
-    this.renderPlayers();
   }
 
   private calculateWordScore(selection: Tile[], hasLongWordBonus: boolean): number {
@@ -912,20 +909,12 @@ export class SpellcastGame {
 
     const aspect = widthPx / heightPx;
     const boardWorldWidth = this.board.width() * this.board.scale.x;
-    const boardWorldHeight = this.board.height() * this.board.scale.y;
     const leftBound = (-this.frustumSize * aspect) / 2;
-    const topBound = this.frustumSize / 2;
     const pxPerWorldX = widthPx / (this.frustumSize * aspect);
-    const pxPerWorldY = heightPx / this.frustumSize;
 
     const boardLeftWorld = this.board.position.x - boardWorldWidth / 2;
-    const boardTopWorld = this.board.position.y + boardWorldHeight / 2;
-
     const boardWidthPx = boardWorldWidth * pxPerWorldX;
     const boardLeftPx = (boardLeftWorld - leftBound) * pxPerWorldX;
-    const boardTopPx = (topBound - boardTopWorld) * pxPerWorldY;
-    const boxHeight = this.wordBox.offsetHeight || 54;
-    const marginPx = 15;
     const topPx = 20;
 
     this.wordBox.style.width = `${boardWidthPx}px`;
@@ -1008,36 +997,6 @@ export class SpellcastGame {
     });
   }
 
-  private endGame() {
-    const sorted = [...this.players].sort((a, b) => b.score - a.score);
-    const winner = sorted[0];
-    const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
-    const modal = document.createElement("div");
-    modal.className = "modal modal--theme";
-
-    const message = document.createElement("p");
-    message.innerHTML = `<strong>${winner.name}</strong> won with <strong>${winner.score} points</strong>`;
-
-    const countdown = document.createElement("p");
-    countdown.textContent = "A new game will begin in 5 seconds.";
-
-    modal.append(message, countdown);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-
-    let remaining = 5;
-    const interval = window.setInterval(() => {
-      remaining -= 1;
-      countdown.textContent = `A new game will begin in ${remaining} second${remaining === 1 ? "" : "s"}.`;
-      if (remaining <= 0) {
-        window.clearInterval(interval);
-        overlay.remove();
-        this.resetGame();
-      }
-    }, 1000);
-  }
-
   private handleSwapSelection = async (tile: Tile) => {
     if (this.isSpectator) return;
     const player = this.players[this.currentPlayerIndex];
@@ -1068,17 +1027,20 @@ export class SpellcastGame {
       return;
     }
 
-    player.gems -= 3;
-    this.board.swapTileLetter(tile, letter);
+    const tileId = this.board.getTileId(tile);
+    const result = this.offlineAdapter?.applySwap(player.id, tileId, letter);
+    if (!result?.success) {
+      console.warn(result?.error ?? "Swap failed");
+      this.exitSwapMode();
+      return;
+    }
+
     this.board.clearSelection();
     this.board.setHovered(undefined);
     this.updateWord([]);
     this.exitSwapMode();
-    this.renderPlayers();
     this.logEvent(`Round ${this.round}: ${player.name} swapped a letter to "${letter}".`);
-
-    this.board.clearSelection();
-    this.updateWord([]);
+    this.syncOfflineSnapshot();
   };
 
   private showLetterPicker(): Promise<string | null> {
@@ -1122,34 +1084,6 @@ export class SpellcastGame {
         resolve(value);
       };
     });
-  }
-
-  private resetGame() {
-    this.round = 1;
-    this.currentPlayerIndex = 0;
-    this.lastSubmissionToken = undefined;
-    this.players.forEach((player, index) => {
-      player.score = 0;
-      player.gems = 3;
-      player.lastWord = undefined;
-      if (!this.isMultiplayer) {
-        player.name = `Player ${index + 1}`;
-      }
-    });
-    this.lastActivePlayerId = this.players[0]?.id;
-    this.turnStartTime = performance.now();
-    this.restartTurnTimer();
-    this.board.setMultipliersEnabled(false);
-    this.board.setWordMultiplierEnabled(false, {
-      mode: this.isMultiplayer ? "sync" : "local",
-      round: this.round
-    });
-    this.board.refreshTiles(this.board.allTiles(), true);
-    this.board.clearSelection();
-    this.updateWord([]);
-    this.updateRoundLabel();
-    this.renderPlayers();
-    this.gameLog = [];
   }
 
   private showActivityLog() {
@@ -1251,7 +1185,8 @@ export class SpellcastGame {
   }
 
   private playSubmissionAnimation(selection: Tile[]) {
-    if (!this.submitAnimContainer || !selection.length) return;
+    const submitContainer = this.submitAnimContainer;
+    if (!submitContainer || !selection.length) return;
     const containerRect = this.container.getBoundingClientRect();
     const letterGap = 64;
     const totalWidth = (selection.length - 1) * letterGap;
@@ -1259,10 +1194,10 @@ export class SpellcastGame {
     const targetY = containerRect.height * 0.5;
     const underlineWidth = totalWidth + 20;
 
-    this.submitAnimContainer.innerHTML = "";
+    submitContainer.innerHTML = "";
     const overlay = document.createElement("div");
     overlay.className = "submit-anim__overlay";
-    this.submitAnimContainer.appendChild(overlay);
+    submitContainer.appendChild(overlay);
     const spawnSparkle = (el: SVGCircleElement) => {
       const now = performance.now();
       if (now - this.lastSparkleTime < 45) return;
@@ -1275,7 +1210,7 @@ export class SpellcastGame {
         sparkle.className = "submit-anim__sparkle";
         sparkle.style.left = `${x}px`;
         sparkle.style.top = `${y}px`;
-        this.submitAnimContainer?.appendChild(sparkle);
+        submitContainer.appendChild(sparkle);
         setTimeout(() => sparkle.remove(), 420);
       });
     };
@@ -1295,10 +1230,9 @@ export class SpellcastGame {
       const startY = targetY;
 
       const entry = this.createAnimatedLetter(tile.letter, startX, startY);
-      this.submitAnimContainer.appendChild(entry.container);
+      submitContainer.appendChild(entry.container);
       letters.push({ ...entry, startX, startY });
 
-      
       const delay = index * drawDuration;
       gsap.to(entry.container, {
         scale: 1,
@@ -1335,7 +1269,9 @@ export class SpellcastGame {
         ease: "power1.inOut",
         delay: delay + 0.05,
         onUpdate: () => spawnSparkle(entry.dot),
-        onComplete: () => (entry.dot.style.opacity = "0")
+        onComplete: () => {
+          entry.dot.style.opacity = "0";
+        }
       });
     });
 
@@ -1360,7 +1296,7 @@ export class SpellcastGame {
     underline.setAttribute("stroke-dasharray", `${underlineLen}`);
     underline.setAttribute("stroke-dashoffset", `${underlineLen}`);
     underlineSvg.appendChild(underline);
-    this.submitAnimContainer.appendChild(underlineSvg);
+    submitContainer.appendChild(underlineSvg);
 
     const underlineDelay = selection.length * drawDuration + 0.15;
     gsap.to(underlineSvg, {
@@ -1384,6 +1320,7 @@ export class SpellcastGame {
 
     const flyDelayMs = Math.floor(620 * selection.length + 600);
     setTimeout(() => {
+      if (!this.playersListEl) return;
       const targetCard = this.playersListEl.querySelector<HTMLElement>(
         `[data-player-id="${this.players[this.currentPlayerIndex]?.id}"]`
       );
@@ -1410,12 +1347,13 @@ export class SpellcastGame {
     }, flyDelayMs);
 
     setTimeout(() => {
-      this.submitAnimContainer.innerHTML = "";
+      submitContainer.innerHTML = "";
     }, flyDelayMs + 1000);
   }
 
   private playSubmissionWord(word: string, playerId?: string) {
-    if (!this.submitAnimContainer || !word) return;
+    const submitContainer = this.submitAnimContainer;
+    if (!submitContainer || !word) return;
     const containerRect = this.container.getBoundingClientRect();
     const letterGap = 64;
     const lettersArr = word.split("");
@@ -1424,10 +1362,10 @@ export class SpellcastGame {
     const targetY = containerRect.height * 0.5;
     const underlineWidth = totalWidth + 20;
 
-    this.submitAnimContainer.innerHTML = "";
+    submitContainer.innerHTML = "";
     const overlay = document.createElement("div");
     overlay.className = "submit-anim__overlay";
-    this.submitAnimContainer.appendChild(overlay);
+    submitContainer.appendChild(overlay);
     const spawnSparkle = (el: SVGCircleElement) => {
       const now = performance.now();
       if (now - this.lastSparkleTime < 45) return;
@@ -1440,7 +1378,7 @@ export class SpellcastGame {
         sparkle.className = "submit-anim__sparkle";
         sparkle.style.left = `${x}px`;
         sparkle.style.top = `${y}px`;
-        this.submitAnimContainer?.appendChild(sparkle);
+        submitContainer.appendChild(sparkle);
         setTimeout(() => sparkle.remove(), 420);
       });
     };
@@ -1459,7 +1397,7 @@ export class SpellcastGame {
       const startY = targetY;
 
       const entry = this.createAnimatedLetter(char, startX, startY);
-      this.submitAnimContainer.appendChild(entry.container);
+      submitContainer.appendChild(entry.container);
       letters.push({ ...entry, startX, startY });
 
       const drawDuration = 0.25;
@@ -1499,7 +1437,9 @@ export class SpellcastGame {
         ease: "power1.inOut",
         delay: delay + 0.05,
         onUpdate: () => spawnSparkle(entry.dot),
-        onComplete: () => (entry.dot.style.opacity = "0")
+        onComplete: () => {
+          entry.dot.style.opacity = "0";
+        }
       });
     });
 
@@ -1524,7 +1464,7 @@ export class SpellcastGame {
     underline.setAttribute("stroke-dasharray", `${underlineLen}`);
     underline.setAttribute("stroke-dashoffset", `${underlineLen}`);
     underlineSvg.appendChild(underline);
-    this.submitAnimContainer.appendChild(underlineSvg);
+    submitContainer.appendChild(underlineSvg);
 
     const underlineDelay = lettersArr.length * 0.62 + 0.15;
     gsap.to(underlineSvg, {
@@ -1548,6 +1488,7 @@ export class SpellcastGame {
 
     const flyDelayMs = Math.floor(620 * lettersArr.length + 600);
     setTimeout(() => {
+      if (!this.playersListEl) return;
       const targetCard = playerId
         ? this.playersListEl.querySelector<HTMLElement>(`[data-player-id="${playerId}"]`)
         : null;
@@ -1574,7 +1515,7 @@ export class SpellcastGame {
     }, flyDelayMs);
 
     setTimeout(() => {
-      this.submitAnimContainer.innerHTML = "";
+      submitContainer.innerHTML = "";
     }, flyDelayMs + 1200);
   }
 
@@ -1713,7 +1654,6 @@ export class SpellcastGame {
 
   private onTurnChanged(newPlayerId?: string, previousPlayerId?: string) {
     if (!newPlayerId || newPlayerId === previousPlayerId) return;
-    this.lastActivePlayerId = newPlayerId;
     soundManager.play("turn-change");
     if (!this.isMultiplayer) {
       this.turnStartTime = performance.now();
@@ -1807,13 +1747,17 @@ export class SpellcastGame {
     this.onTurnChanged(this.players[this.currentPlayerIndex]?.id, previousId);
     this.board.setMultipliersEnabled(snapshot.multipliersEnabled);
     this.board.setWordMultiplierEnabled(snapshot.wordMultiplierEnabled, {
-      mode: "sync",
+      mode: this.isMultiplayer ? "sync" : "local",
       round: snapshot.round,
       tileId: snapshot.roundWordTileId
     });
     this.updateRoundLabel();
-    this.board.setSwapMode(snapshot.swapModePlayerId === this.playerId);
-    this.swapMode = snapshot.swapModePlayerId === this.playerId;
+    const viewerId = this.isMultiplayer
+      ? this.playerId
+      : this.players[this.currentPlayerIndex]?.id;
+    const swapActive = snapshot.swapModePlayerId === viewerId;
+    this.board.setSwapMode(swapActive);
+    this.swapMode = swapActive;
     if (snapshot.log && snapshot.log.length !== this.lastLogLength) {
       this.gameLog = [...snapshot.log];
       this.lastLogLength = snapshot.log.length;

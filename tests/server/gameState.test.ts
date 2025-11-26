@@ -53,7 +53,7 @@ describe("gameState vowels", () => {
   it("refresh after submission keeps at least minimum vowels", () => {
     const room = makeRoom();
     const game = room.game!;
-    const dict = new Set(["CAT"]);
+    const dict = new Set(["CAT", "DOG", "CAN", "RAN"]);
 
     // Force a simple word across the top row
     const ids = ["0-0", "1-0", "2-0"];
@@ -61,11 +61,11 @@ describe("gameState vowels", () => {
       if (tile.id === "0-0") tile.letter = "C";
       if (tile.id === "1-0") tile.letter = "A";
       if (tile.id === "2-0") tile.letter = "T";
+      if (!ids.includes(tile.id)) tile.letter = "A"; // ensure plenty of vowels baseline
     });
 
     const result = submitWord(room, "p1", ids, dict);
     expect(result.success).toBe(true);
-
     const vowels = countVowels(game.tiles.map((t) => t.letter));
     expect(vowels).toBeGreaterThanOrEqual(MIN_VOWELS);
   });
