@@ -24,6 +24,10 @@ body {
   overflow: hidden;
 }
 
+body.fresh-load * {
+  transition: none !important;
+}
+
 .app-viewport {
   position: relative;
   width: 100vw;
@@ -57,14 +61,29 @@ body {
   background: #123761;
   padding: 12px;
   box-sizing: border-box;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: none;
+  transform: translate(-50%, -50%) scale(calc(var(--app-scale) * 0.98));
+}
+
+body.app-ready #app {
+  transition: opacity 0.35s ease, transform 0.35s ease, visibility 0.35s ease;
 }
 
 body:not(.in-game) #app {
-  display: none !important;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(calc(var(--app-scale) * 0.98));
 }
 
 body.in-game #app {
-  display: flex;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) scale(var(--app-scale));
 }
 
 .board-area {
@@ -387,6 +406,8 @@ body.in-game #app {
   display: grid;
   place-items: center;
   z-index: 20000;
+  opacity: 1;
+  transition: opacity 0.25s ease;
 }
 
 .modal {
@@ -398,6 +419,27 @@ body.in-game #app {
   color: #dfe9ff;
   box-shadow: none;
   font-size: 16px;
+  transform: scale(1);
+  opacity: 1;
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.modal-overlay.modal--entering {
+  opacity: 0;
+}
+
+.modal-overlay.modal--entering .modal {
+  transform: scale(0.94);
+  opacity: 0;
+}
+
+.modal-overlay.modal--leaving {
+  opacity: 0;
+}
+
+.modal-overlay.modal--leaving .modal {
+  transform: scale(0.94);
+  opacity: 0;
 }
 
 .modal__actions {
@@ -407,33 +449,148 @@ body.in-game #app {
   margin-top: 18px;
 }
 
+.modal.modal--theme {
+  background: #123761;
+  border: 2px solid #e5b832;
+  color: #f7fbff;
+  box-shadow: none;
+}
+
+.modal.modal--theme h3 {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f7cd42;
+}
+
+.modal.modal--theme .modal__actions {
+  justify-content: flex-end;
+}
+
+.modal.modal--theme .modal__btn {
+  border-radius: 10px;
+  border: 2px solid #e5b832;
+  background: #f7cd42;
+  color: #0d1f38;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.modal.modal--theme .modal__btn.primary {
+  background: #f7cd42;
+  border-color: #e5b832;
+}
+
+.modal.modal--theme .modal__btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.05);
+}
+
+.modal.modal--theme .modal__btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.endgame-modal .endgame-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.endgame-modal {
+  width: min(560px, 95vw);
+  display: flex;
+  flex-direction: column;
+}
+
+.endgame-card {
+  position: relative;
+  box-shadow: none;
+  width: 100%;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 12px;
+  min-height: 90px;
+}
+
+.endgame-card__header {
+  align-items: center;
+  padding-right: 96px;
+}
+
+.endgame-card__meta {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.endgame-card__score-pill {
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  font-size: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.endgame-card__score-pill .pill__icon {
+  font-size: 20px;
+  margin-right: 0;
+}
+
+.endgame-card .pill--score .pill__icon {
+  font-size: 14px;
+  color: #ffd76f;
+}
+
 .dictionary-modal__input {
   width: 100%;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  border: 2px solid #e5b832;
+  background: rgba(255, 255, 255, 0.1);
   color: #f7fbff;
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-size: 16px;
+  box-shadow: none;
+}
+
+.dictionary-modal__input:focus {
+  outline: none;
+  border-color: #f7cd42;
+  box-shadow: 0 0 0 3px rgba(247, 205, 66, 0.25);
 }
 
 .dictionary-modal__list {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-  background: rgba(18, 55, 97, 0.5);
-  padding: 10px;
+  border: 2px solid #0f2544;
+  border-radius: 12px;
+  background: rgba(18, 55, 97, 0.7);
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
 .dictionary-modal__item {
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(22, 94, 175, 0.4);
+  border: 1px solid rgba(229, 184, 50, 0.6);
   color: #f7fbff;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -452,6 +609,19 @@ body.in-game #app {
   inset: 0;
   background: rgba(0, 10, 20, 0.55);
   backdrop-filter: blur(1px);
+}
+
+.submit-anim__score {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  color: #f7cd42;
+  font: 900 64px "Play", "Segoe UI", sans-serif;
+  letter-spacing: 0.1em;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  opacity: 0;
 }
 
 .submit-anim__letter {
@@ -836,8 +1006,8 @@ body.in-game #app {
 .player__lastWord {
   position: absolute;
   left: 12px;
-  bottom: 10px;
-  font-size: 12px;
+  bottom: 14px;
+  font-size: 16px;
   color: #c9d9ff;
   opacity: 0.9;
   text-align: left;
@@ -879,9 +1049,14 @@ body.in-game #app {
   color: #ffdfff;
 }
 
+.endgame-card__score-pill {
+  font-size: 22px !important;
+  padding: 0 !important;
+}
+
 .pill--gem .pill__icon {
   color: #ffe6ff;
-  font-size: 12px;
+  font-size: 10px;
 }
 
 .pill--spectator {
@@ -909,10 +1084,23 @@ body.in-game #app {
   padding: 20px;
   z-index: 9999;
   background: rgba(12, 26, 46, 0.45);
+  opacity: 1;
+  transition: opacity 0.35s ease;
+}
+
+body:not(.landing-ready) .landing-overlay {
+  transition: none;
 }
 
 .landing-overlay--hidden {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.landing-overlay--hidden .landing-panel {
+  transform: translateY(-12px) scale(0.98);
+  opacity: 0.9;
 }
 
 .landing-overlay--loading {
@@ -930,6 +1118,11 @@ body.in-game #app {
   gap: 16px;
   max-height: 90vh;
   overflow: auto;
+  transition: transform 0.35s ease, opacity 0.35s ease;
+}
+
+body:not(.landing-ready) .landing-panel {
+  transition: none;
 }
 
 .landing-panel__label {
@@ -977,8 +1170,15 @@ body.in-game #app {
 
 .landing-views {
   flex: 1;
-  display: flex;
-  flex-direction: column;
+}
+
+.landing-panels {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  justify-items: center;
+  align-items: start;
 }
 
 .landing-view {
@@ -987,8 +1187,40 @@ body.in-game #app {
   gap: 12px;
 }
 
-.landing-view[hidden] {
+.landing-panel {
+  width: min(460px, 92vw);
+  background: #123761;
+  border-radius: 16px;
+  padding: 32px 30px;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 90vh;
+  overflow: auto;
+  transition: transform 0.35s ease, opacity 0.35s ease;
+  opacity: 0;
+  transform: translateY(14px) scale(0.98);
+  pointer-events: none;
+}
+
+.landing-panel--active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.landing-panel--exit {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+}
+
+.landing-panel[hidden] {
   display: none;
+}
+
+body:not(.landing-ready) .landing-panel {
+  transition: none;
 }
 
 @media (max-height: 760px) {

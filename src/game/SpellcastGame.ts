@@ -16,6 +16,9 @@ export interface Player {
   connected: boolean;
   isSpectator: boolean;
   lastWord?: string;
+  lastWordPoints?: number;
+  bestWord?: string;
+  bestWordPoints?: number;
 }
 
 export interface InitialRoomState {
@@ -100,7 +103,10 @@ export class SpellcastGame {
     if (adapterPlayers.length) {
       this.players = adapterPlayers.map((p) => ({
         ...p,
-        lastWord: this.players.find((pp) => pp.id === p.id)?.lastWord
+        lastWord: this.players.find((pp) => pp.id === p.id)?.lastWord,
+        lastWordPoints: this.players.find((pp) => pp.id === p.id)?.lastWordPoints,
+        bestWord: this.players.find((pp) => pp.id === p.id)?.bestWord,
+        bestWordPoints: this.players.find((pp) => pp.id === p.id)?.bestWordPoints
       }));
     }
     this.applyGameSnapshot(snap);
@@ -132,7 +138,10 @@ export class SpellcastGame {
         isHost: p.isHost ?? false,
         connected: p.connected ?? true,
         isSpectator: p.isSpectator ?? false,
-        lastWord: undefined
+        lastWord: undefined,
+        lastWordPoints: undefined,
+        bestWord: undefined,
+        bestWordPoints: undefined
       }));
       this.roomId = roomState.roomId;
       this.playerId = roomState.playerId;
@@ -144,27 +153,33 @@ export class SpellcastGame {
     } else {
       this.players = [
         {
-          id: "local-1",
-          name: "Player 1",
-          score: 0,
-          gems: 3,
-          isHost: true,
-          connected: true,
-          isSpectator: false,
-          lastWord: undefined
-        },
-        {
-          id: "local-2",
-          name: "Player 2",
-          score: 0,
-          gems: 3,
-          isHost: false,
-          connected: true,
-          isSpectator: false,
-          lastWord: undefined
-        }
-      ];
-    }
+        id: "local-1",
+        name: "Player 1",
+        score: 0,
+        gems: 3,
+        isHost: true,
+        connected: true,
+        isSpectator: false,
+        lastWord: undefined,
+        lastWordPoints: undefined,
+        bestWord: undefined,
+        bestWordPoints: undefined
+      },
+      {
+        id: "local-2",
+        name: "Player 2",
+        score: 0,
+        gems: 3,
+        isHost: false,
+        connected: true,
+        isSpectator: false,
+        lastWord: undefined,
+        lastWordPoints: undefined,
+        bestWord: undefined,
+        bestWordPoints: undefined
+      }
+    ];
+  }
     const myId = roomState?.playerId;
     if (myId) {
       const me = this.players.find((player) => player.id === myId);
@@ -488,10 +503,10 @@ export class SpellcastGame {
 
       const meta = document.createElement("div");
       meta.className = "player__meta";
-      const metaRow = document.createElement("div");
-      metaRow.className = "player__metaRow";
-      metaRow.innerHTML = `<span class="pill pill--score"><i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${player.score}</span><span class="pill pill--gem"><i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i>${player.gems}</span>`;
-      meta.append(metaRow);
+    const metaRow = document.createElement("div");
+    metaRow.className = "player__metaRow";
+    metaRow.innerHTML = `<span class="pill pill--score"><i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${player.score}</span><span class="pill pill--gem"><i class="fa-solid fa-gem pill__icon" aria-hidden="true"></i>${player.gems}</span>`;
+    meta.append(metaRow);
 
       if (index === this.currentPlayerIndex) {
         const turnTimer = document.createElement("div");
@@ -501,14 +516,19 @@ export class SpellcastGame {
         this.turnTimerEl = turnTimer;
       }
 
-      if (player.lastWord) {
-        const lastWord = document.createElement("div");
-        lastWord.className = "player__lastWord";
-        lastWord.textContent = `${player.lastWord}`;
-        item.append(header, meta, lastWord);
-      } else {
-        item.append(header, meta);
+    if (player.lastWord) {
+      const lastWord = document.createElement("div");
+      lastWord.className = "player__lastWord";
+      const pointsText =
+        typeof player.lastWordPoints === "number" ? ` (${player.lastWordPoints})` : "";
+      lastWord.textContent = `${player.lastWord}${pointsText}`;
+      if (player.bestWord && player.bestWordPoints && player.bestWordPoints > (player.lastWordPoints ?? 0)) {
+        lastWord.title = `Best: ${player.bestWord} (${player.bestWordPoints})`;
       }
+      item.append(header, meta, lastWord);
+    } else {
+      item.append(header, meta);
+    }
       this.playersListEl.appendChild(item);
     });
 
@@ -607,6 +627,7 @@ export class SpellcastGame {
 
     const word = selection.map((t) => t.letter).join("");
     const normalizedWord = word.toUpperCase();
+    const points = this.calculateWordScore(selection, word.length >= 6);
     if (!this.dictionary.has(normalizedWord)) {
       console.warn(`"${word}" is not a valid word.`);
       this.setWordBoxValidity(false);
@@ -618,6 +639,14 @@ export class SpellcastGame {
       const tileIds = selection.map((tile) => this.board.getTileId(tile));
       const submissionKey = `${this.round}:${player?.id ?? "unknown"}:${normalizedWord}`;
       this.lastSubmissionToken = submissionKey;
+      if (player) {
+        player.lastWord = normalizedWord;
+        player.lastWordPoints = points;
+        if (!player.bestWordPoints || points > player.bestWordPoints) {
+          player.bestWordPoints = points;
+          player.bestWord = normalizedWord;
+        }
+      }
       soundManager.play("word-submit");
       this.playSubmissionAnimation(selection);
       this.multiplayer.submitWord(tileIds);
@@ -636,6 +665,12 @@ export class SpellcastGame {
     }
     const submissionKey = `${this.round}:${player.id}:${normalizedWord}`;
     this.lastSubmissionToken = submissionKey;
+    player.lastWord = normalizedWord;
+    player.lastWordPoints = points;
+    if (!player.bestWordPoints || points > player.bestWordPoints) {
+      player.bestWordPoints = points;
+      player.bestWord = normalizedWord;
+    }
     soundManager.play("word-submit");
     this.playSubmissionAnimation(selection);
     this.board.clearSelection();
@@ -963,7 +998,7 @@ export class SpellcastGame {
     return new Promise((resolve) => {
       this.isModalOpen = true;
       const overlay = document.createElement("div");
-      overlay.className = "modal-overlay";
+      overlay.className = "modal-overlay modal--entering";
       const modal = document.createElement("div");
       modal.className = "modal modal--theme";
 
@@ -983,7 +1018,8 @@ export class SpellcastGame {
 
       const cleanup = (result: boolean) => {
         this.isModalOpen = false;
-        overlay.remove();
+        overlay.classList.add("modal--leaving");
+        window.setTimeout(() => overlay.remove(), 220);
         resolve(result);
       };
 
@@ -994,6 +1030,9 @@ export class SpellcastGame {
       modal.append(text, actions);
       overlay.appendChild(modal);
       document.body.appendChild(overlay);
+      requestAnimationFrame(() => {
+        overlay.classList.remove("modal--entering");
+      });
     });
   }
 
@@ -1047,9 +1086,9 @@ export class SpellcastGame {
     return new Promise((resolve) => {
       this.isModalOpen = true;
       const overlay = document.createElement("div");
-      overlay.className = "modal-overlay";
+      overlay.className = "modal-overlay modal--entering";
       const modal = document.createElement("div");
-      modal.className = "modal";
+      modal.className = "modal modal--theme";
 
       const text = document.createElement("p");
       text.textContent = "Select a new letter";
@@ -1080,15 +1119,20 @@ export class SpellcastGame {
 
       const cleanup = (value: string | null) => {
         this.isModalOpen = false;
-        overlay.remove();
+        overlay.classList.add("modal--leaving");
+        window.setTimeout(() => overlay.remove(), 220);
         resolve(value);
       };
+
+      requestAnimationFrame(() => {
+        overlay.classList.remove("modal--entering");
+      });
     });
   }
 
   private showActivityLog() {
     const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
+    overlay.className = "modal-overlay modal--entering";
     const modal = document.createElement("div");
     modal.className = "modal modal--theme";
     modal.style.maxHeight = "70vh";
@@ -1117,21 +1161,25 @@ export class SpellcastGame {
     const closeBtn = document.createElement("button");
     closeBtn.className = "modal__btn primary";
     closeBtn.textContent = "Close";
-    closeBtn.addEventListener("click", () => overlay.remove());
+    closeBtn.addEventListener("click", () => {
+      overlay.classList.add("modal--leaving");
+      window.setTimeout(() => overlay.remove(), 220);
+    });
     actions.append(closeBtn);
 
     modal.append(actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.remove("modal--entering"));
   }
 
   private showDictionarySearch() {
     if (this.isModalOpen) return;
     this.isModalOpen = true;
     const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
+    overlay.className = "modal-overlay modal--entering";
     const modal = document.createElement("div");
-    modal.className = "modal";
+    modal.className = "modal modal--theme";
     modal.style.width = "90vw";
     modal.style.maxWidth = "900px";
     modal.style.height = "80vh";
@@ -1174,7 +1222,8 @@ export class SpellcastGame {
     closeBtn.className = "modal__btn primary";
     closeBtn.textContent = "Close";
     closeBtn.addEventListener("click", () => {
-      overlay.remove();
+      overlay.classList.add("modal--leaving");
+      window.setTimeout(() => overlay.remove(), 200);
       this.isModalOpen = false;
     });
     actions.append(closeBtn);
@@ -1182,6 +1231,10 @@ export class SpellcastGame {
     modal.append(title, input, list, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    requestAnimationFrame(() => {
+      overlay.classList.remove("modal--entering");
+      input.focus();
+    });
   }
 
   private playSubmissionAnimation(selection: Tile[]) {
@@ -1192,7 +1245,9 @@ export class SpellcastGame {
     const totalWidth = (selection.length - 1) * letterGap;
     const targetBaseX = containerRect.width / 2 - totalWidth / 2;
     const targetY = containerRect.height * 0.5;
+    const centerX = targetBaseX + totalWidth / 2;
     const underlineWidth = totalWidth + 20;
+    const points = this.calculateWordScore(selection, selection.length >= 6);
 
     submitContainer.innerHTML = "";
     const overlay = document.createElement("div");
@@ -1275,6 +1330,19 @@ export class SpellcastGame {
       });
     });
 
+    const scoreChars = `+${points}`;
+    const scoreGap = 46;
+    const scoreTotalWidth = (scoreChars.length - 1) * scoreGap;
+    const scoreBaseX = centerX - scoreTotalWidth / 2;
+    const scoreLetters: ReturnType<SpellcastGame["createAnimatedLetter"]>[] = [];
+    scoreChars.split("").forEach((ch, idx) => {
+      const sx = scoreBaseX + idx * scoreGap;
+      const entry = this.createAnimatedLetter(ch, sx, targetY);
+      entry.container.style.opacity = "0";
+      submitContainer.appendChild(entry.container);
+      scoreLetters.push(entry);
+    });
+
     const underlineSvg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     underlineSvg.setAttribute("width", `${underlineWidth}`);
     underlineSvg.setAttribute("height", "22");
@@ -1318,40 +1386,121 @@ export class SpellcastGame {
       });
     };
 
-    const flyDelayMs = Math.floor(620 * selection.length + 600);
-    setTimeout(() => {
-      if (!this.playersListEl) return;
-      const targetCard = this.playersListEl.querySelector<HTMLElement>(
-        `[data-player-id="${this.players[this.currentPlayerIndex]?.id}"]`
-      );
-      const targetRect = targetCard?.getBoundingClientRect();
-      const targetCenterX = targetRect
-        ? targetRect.left - containerRect.left + targetRect.width / 2
-        : containerRect.width + 120;
-      const targetCenterY = targetRect
-        ? targetRect.top - containerRect.top + targetRect.height / 2
-        : -120;
+    const totalDrawSeconds = selection.length * drawDuration + 0.25;
+    const collapseDuration = 0.4;
+    const holdScore = 1.5;
+    const tl = gsap.timeline();
 
-      letters.forEach((entry, idx) => {
-        gsap.to(entry.container, {
-          x: targetCenterX - entry.startX,
-          y: targetCenterY - entry.startY,
-          scale: 0.6,
+    tl.addLabel("collapse", totalDrawSeconds);
+    letters.forEach((entry) => {
+      tl.to(
+        entry.container,
+        {
+          x: centerX - entry.startX,
+          y: targetY - entry.startY,
+          scale: 0.85,
+          opacity: 0.4,
+          duration: collapseDuration,
+          ease: "power2.inOut",
+          onComplete: () => {
+            entry.startX = centerX;
+            entry.startY = targetY;
+          }
+        },
+        "collapse"
+      );
+    });
+    letters.forEach((entry) => {
+      tl.to(
+        entry.container,
+        { opacity: 0.0, duration: 0.2, ease: "power1.out" },
+        `collapse+=${collapseDuration}`
+      );
+    });
+
+    const scoreDrawDuration = 0.3;
+    scoreLetters.forEach((entry, idx) => {
+      const delay = idx * scoreDrawDuration;
+      tl.to(
+        entry.container,
+        { scale: 1, opacity: 1, duration: 0.2, ease: "power2.out" },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.text,
+        {
+          strokeDashoffset: 0,
+          duration: scoreDrawDuration,
+          ease: "power1.inOut",
+          delay: 0.05
+        },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.text,
+        { fillOpacity: 1, duration: 0.25, delay: scoreDrawDuration - 0.05 },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.dot,
+        { opacity: 1, duration: 0.05 },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.dot,
+        {
+          motionPath: {
+            path: entry.guide,
+            align: entry.guide,
+            autoRotate: false,
+            alignOrigin: [0.5, 0.5]
+          },
+          duration: scoreDrawDuration,
+          ease: "power1.inOut",
+          delay: 0.05,
+          onUpdate: () => spawnSparkle(entry.dot),
+          onComplete: () => {
+            entry.dot.style.opacity = "0";
+          }
+        },
+        `collapse+=${collapseDuration + delay}`
+      );
+    });
+
+    const targetCard = this.playersListEl?.querySelector<HTMLElement>(
+      `[data-player-id="${this.players[this.currentPlayerIndex]?.id}"]`
+    );
+    const targetRect = targetCard?.getBoundingClientRect();
+    const targetCenterX = targetRect
+      ? targetRect.left - containerRect.left + targetRect.width / 2
+      : containerRect.width + 120;
+    const targetCenterY = targetRect
+      ? targetRect.top - containerRect.top + targetRect.height / 2
+      : -120;
+
+    tl.addLabel("fly", `collapse+=${collapseDuration + scoreDrawDuration * scoreLetters.length + holdScore}`);
+    scoreLetters.forEach((entry, idx) => {
+      tl.to(
+        entry.container,
+        {
+          x: targetCenterX - parseFloat(entry.container.style.left),
+          y: targetCenterY - parseFloat(entry.container.style.top),
+          scale: 0.75,
           opacity: 0,
           duration: 0.75,
           ease: "power1.in",
-          delay: idx * 0.06
-        });
-      });
-      underlineFade();
-    }, flyDelayMs);
-
-    setTimeout(() => {
+          delay: idx * 0.04
+        },
+        "fly"
+      );
+    });
+    tl.call(underlineFade, undefined, "fly");
+    tl.call(() => {
       submitContainer.innerHTML = "";
-    }, flyDelayMs + 1000);
+    }, undefined, "fly+=1");
   }
 
-  private playSubmissionWord(word: string, playerId?: string) {
+  private playSubmissionWord(word: string, playerId?: string, points?: number) {
     const submitContainer = this.submitAnimContainer;
     if (!submitContainer || !word) return;
     const containerRect = this.container.getBoundingClientRect();
@@ -1360,6 +1509,7 @@ export class SpellcastGame {
     const totalWidth = (lettersArr.length - 1) * letterGap;
     const targetBaseX = containerRect.width / 2 - totalWidth / 2;
     const targetY = containerRect.height * 0.5;
+    const centerX = targetBaseX + totalWidth / 2;
     const underlineWidth = totalWidth + 20;
 
     submitContainer.innerHTML = "";
@@ -1390,6 +1540,8 @@ export class SpellcastGame {
       startX: number;
       startY: number;
     }[] = [];
+
+    const resolvedPoints = points ?? 0;
 
     lettersArr.forEach((char, index) => {
       const targetX = targetBaseX + index * letterGap;
@@ -1466,6 +1618,21 @@ export class SpellcastGame {
     underlineSvg.appendChild(underline);
     submitContainer.appendChild(underlineSvg);
 
+    const scoreChars = resolvedPoints ? `+${resolvedPoints}` : "";
+    const scoreGap = 46;
+    const scoreTotalWidth = scoreChars ? (scoreChars.length - 1) * scoreGap : 0;
+    const scoreBaseX = centerX - scoreTotalWidth / 2;
+    const scoreLetters: ReturnType<SpellcastGame["createAnimatedLetter"]>[] = [];
+    if (scoreChars) {
+      scoreChars.split("").forEach((ch, idx) => {
+        const sx = scoreBaseX + idx * scoreGap;
+        const entry = this.createAnimatedLetter(ch, sx, targetY);
+        entry.container.style.opacity = "0";
+        submitContainer.appendChild(entry.container);
+        scoreLetters.push(entry);
+      });
+    }
+
     const underlineDelay = lettersArr.length * 0.62 + 0.15;
     gsap.to(underlineSvg, {
       opacity: 1,
@@ -1486,22 +1653,104 @@ export class SpellcastGame {
       });
     };
 
-    const flyDelayMs = Math.floor(620 * lettersArr.length + 600);
-    setTimeout(() => {
-      if (!this.playersListEl) return;
-      const targetCard = playerId
-        ? this.playersListEl.querySelector<HTMLElement>(`[data-player-id="${playerId}"]`)
-        : null;
-      const targetRect = targetCard?.getBoundingClientRect();
-      const targetCenterX = targetRect
-        ? targetRect.left - containerRect.left + targetRect.width / 2
-        : containerRect.width + 120;
-      const targetCenterY = targetRect
-        ? targetRect.top - containerRect.top + targetRect.height / 2
-        : -120;
+    const drawDuration = 0.25;
+    const totalDrawSeconds = lettersArr.length * drawDuration + 0.25;
+    const collapseDuration = 0.35;
+    const holdScore = 1.5;
+    const tl = gsap.timeline();
 
-      letters.forEach((entry, idx) => {
-        gsap.to(entry.container, {
+    tl.addLabel("collapse", totalDrawSeconds);
+    letters.forEach((entry) => {
+      tl.to(
+        entry.container,
+        {
+          x: centerX - entry.startX,
+          y: targetY - entry.startY,
+          scale: 0.85,
+          opacity: 0.4,
+          duration: collapseDuration,
+          ease: "power2.inOut",
+          onComplete: () => {
+            entry.startX = centerX;
+            entry.startY = targetY;
+          }
+        },
+        "collapse"
+      );
+    });
+    letters.forEach((entry) => {
+      tl.to(
+        entry.container,
+        { opacity: 0.15, duration: 0.2, ease: "power1.out" },
+        `collapse+=${collapseDuration}`
+      );
+    });
+
+    const scoreDrawDuration = 0.3;
+    scoreLetters.forEach((entry, idx) => {
+      const delay = idx * scoreDrawDuration;
+      tl.to(
+        entry.container,
+        { scale: 1, opacity: 1, duration: 0.2, ease: "power2.out" },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.text,
+        {
+          strokeDashoffset: 0,
+          duration: scoreDrawDuration,
+          ease: "power1.inOut",
+          delay: 0.05
+        },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.text,
+        { fillOpacity: 1, duration: 0.25, delay: scoreDrawDuration - 0.05 },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.dot,
+        { opacity: 1, duration: 0.05 },
+        `collapse+=${collapseDuration + delay}`
+      );
+      tl.to(
+        entry.dot,
+        {
+          motionPath: {
+            path: entry.guide,
+            align: entry.guide,
+            autoRotate: false,
+            alignOrigin: [0.5, 0.5]
+          },
+          duration: scoreDrawDuration,
+          ease: "power1.inOut",
+          delay: 0.05,
+          onUpdate: () => spawnSparkle(entry.dot),
+          onComplete: () => {
+            entry.dot.style.opacity = "0";
+          }
+        },
+        `collapse+=${collapseDuration + delay}`
+      );
+    });
+
+    const targetCard = playerId
+      ? this.playersListEl?.querySelector<HTMLElement>(`[data-player-id="${playerId}"]`)
+      : null;
+    const targetRect = targetCard?.getBoundingClientRect();
+    const targetCenterX = targetRect
+      ? targetRect.left - containerRect.left + targetRect.width / 2
+      : containerRect.width + 120;
+    const targetCenterY = targetRect
+      ? targetRect.top - containerRect.top + targetRect.height / 2
+      : -120;
+
+    tl.addLabel("fly", `collapse+=${collapseDuration + scoreDrawDuration * scoreLetters.length + holdScore}`);
+    letters.forEach((entry, idx) => {
+      tl.to(
+        entry.container,
+        {
           x: targetCenterX - entry.startX,
           y: targetCenterY - entry.startY,
           scale: 0.6,
@@ -1509,14 +1758,29 @@ export class SpellcastGame {
           duration: 0.75,
           ease: "power1.in",
           delay: idx * 0.06
-        });
-      });
-      underlineFade();
-    }, flyDelayMs);
-
-    setTimeout(() => {
+        },
+        "fly"
+      );
+    });
+    scoreLetters.forEach((entry, idx) => {
+      tl.to(
+        entry.container,
+        {
+          x: targetCenterX - parseFloat(entry.container.style.left),
+          y: targetCenterY - parseFloat(entry.container.style.top),
+          scale: 0.75,
+          opacity: 0,
+          duration: 0.75,
+          ease: "power1.in",
+          delay: idx * 0.04
+        },
+        "fly"
+      );
+    });
+    tl.call(underlineFade, undefined, "fly");
+    tl.call(() => {
       submitContainer.innerHTML = "";
-    }, flyDelayMs + 1200);
+    }, undefined, "fly+=1");
   }
 
   private createAnimatedLetter(char: string, startX: number, startY: number) {
@@ -1617,7 +1881,8 @@ export class SpellcastGame {
           isHost: incoming.isHost,
           connected: incoming.connected ?? false,
           isSpectator: incoming.isSpectator ?? false,
-          lastWord: undefined
+          lastWord: undefined,
+          lastWordPoints: undefined
         });
       }
     });
@@ -1702,29 +1967,89 @@ export class SpellcastGame {
     return current?.id === this.playerId;
   }
 
-  private showServerWinner(winnerId?: string) {
+  private showServerWinner() {
     const overlay = document.createElement("div");
-    overlay.className = "modal-overlay";
+    overlay.className = "modal-overlay modal--entering";
     const modal = document.createElement("div");
-    modal.className = "modal";
-    const winner =
-      winnerId && this.players.find((player) => player.id === winnerId)?.name
-        ? this.players.find((player) => player.id === winnerId)!.name
-        : "Game";
-    const message = document.createElement("p");
-    message.innerHTML = `<strong>${winner}</strong> won the match.`;
-    const detail = document.createElement("p");
-    detail.textContent = "Waiting for the host to start a new game...";
+    modal.className = "modal modal--theme endgame-modal";
+
+    const title = document.createElement("h3");
+    title.textContent = "Top Wizards";
+
+    const standings = [...this.players]
+      .map((p) => ({
+        ...p,
+        finalScore: (p.score ?? 0) + (p.gems ?? 0)
+      }))
+      .sort((a, b) => b.finalScore - a.finalScore)
+      .slice(0, 3);
+
+    const list = document.createElement("div");
+    list.className = "endgame-list";
+
+    standings.forEach((p, idx) => {
+      const card = document.createElement("div");
+      card.className = "lobby-player endgame-card";
+
+      const header = document.createElement("div");
+      header.className = "lobby-player__header endgame-card__header";
+      const name = document.createElement("div");
+      name.className = "lobby-player__name";
+      name.textContent = `${idx + 1}. ${p.name}`;
+      header.append(name);
+
+      const meta = document.createElement("div");
+      meta.className = "endgame-card__meta";
+      const scorePill = document.createElement("span");
+      scorePill.className = "pill pill--score endgame-card__score-pill";
+      scorePill.innerHTML = `<i class="fa-solid fa-star pill__icon" aria-hidden="true"></i>${p.finalScore}`;
+      meta.append(scorePill);
+
+      const best = document.createElement("div");
+      best.className = "player__lastWord";
+      if (p.bestWord && p.bestWordPoints) {
+        best.textContent = `Best: ${p.bestWord} (${p.bestWordPoints})`;
+      } else {
+        best.textContent = "Best: --";
+      }
+
+      card.append(header, meta, best);
+      card.style.opacity = "0";
+      card.style.transform = "translateY(10px) scale(0.96)";
+      list.appendChild(card);
+    });
+
     const actions = document.createElement("div");
     actions.className = "modal__actions";
     const closeBtn = document.createElement("button");
     closeBtn.className = "modal__btn primary";
     closeBtn.textContent = "Close";
-    closeBtn.addEventListener("click", () => overlay.remove());
+    closeBtn.addEventListener("click", () => {
+      overlay.classList.add("modal--leaving");
+      window.setTimeout(() => overlay.remove(), 220);
+    });
     actions.append(closeBtn);
-    modal.append(message, detail, actions);
+
+    modal.append(title, list, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
+    requestAnimationFrame(() => {
+      overlay.classList.remove("modal--entering");
+      const cards = list.querySelectorAll<HTMLElement>(".endgame-card");
+      gsap.to(cards, {
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        duration: 0.45,
+        ease: "back.out(1.6)",
+        stagger: 1.5
+      });
+    });
+  }
+
+  // Debug helper to preview endgame modal without finishing a game
+  public debugShowEndgamePreview() {
+    this.showServerWinner();
   }
 
   public applyRemoteSelection(playerId: string, tileIds: string[]) {
@@ -1767,11 +2092,23 @@ export class SpellcastGame {
       const submitter = this.players.find((p) => p.id === snapshot.lastSubmission!.playerId);
       if (submitter) {
         submitter.lastWord = snapshot.lastSubmission.word;
+        submitter.lastWordPoints = snapshot.lastSubmission.points;
+        if (
+          typeof snapshot.lastSubmission.points === "number" &&
+          (!submitter.bestWordPoints || snapshot.lastSubmission.points > submitter.bestWordPoints)
+        ) {
+          submitter.bestWordPoints = snapshot.lastSubmission.points;
+          submitter.bestWord = snapshot.lastSubmission.word;
+        }
       }
       if (token !== this.lastSubmissionToken) {
         this.lastSubmissionToken = token;
         soundManager.play("word-submit");
-        this.playSubmissionWord(snapshot.lastSubmission.word, snapshot.lastSubmission.playerId);
+        this.playSubmissionWord(
+          snapshot.lastSubmission.word,
+          snapshot.lastSubmission.playerId,
+          snapshot.lastSubmission.points
+        );
       }
     }
     this.renderPlayers();
@@ -1783,7 +2120,7 @@ export class SpellcastGame {
     this.updateTurnUi();
     if (snapshot.completed && !this.serverCompletionHandled) {
       this.serverCompletionHandled = true;
-      this.showServerWinner(snapshot.winnerId);
+      this.showServerWinner();
     } else if (!snapshot.completed) {
       this.serverCompletionHandled = false;
     }

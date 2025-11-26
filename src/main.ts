@@ -46,6 +46,8 @@ const dictionary = new Set(
     .filter(Boolean)
 );
 
+const TRANSITION_MS = 350;
+
 
 const BASE_PATH = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const HOME_PATH = BASE_PATH || "/";
@@ -58,8 +60,15 @@ const STORAGE_KEYS = {
 } as const;
 
 setGameVisibility(false);
+document.body.classList.add("fresh-load");
+document.body.classList.add("app-ready");
+window.setTimeout(() => document.body.classList.add("landing-ready"), 0);
+requestAnimationFrame(() => {
+  document.body.classList.remove("fresh-load");
+});
 
 const existingRoomFromPath = detectRoomIdFromLocation();
+const isDebugMode = import.meta.env.DEV && window.location.pathname.endsWith("/debug");
 let kickHandler: ((playerId: string) => void) | null = null;
 const landing = createLandingOverlay({
   initialName: loadStoredName(),
@@ -210,6 +219,17 @@ function setGameVisibility(active: boolean) {
   document.body.classList.toggle("in-game", active);
 }
 
+function showLandingAfterFade(view: LandingView, message = "", tone: "info" | "error" = "info", after?: () => void) {
+  window.setTimeout(() => {
+    landing.showView(view);
+    landing.show();
+    if (message !== undefined) {
+      landing.setMessage(message, tone);
+    }
+    after?.();
+  }, TRANSITION_MS);
+}
+
 landing.playOnlineBtn.addEventListener("click", () => {
   if (sessionUser?.name) {
     handleCreateRoom(sessionUser.name).catch((err) => console.error(err));
@@ -225,8 +245,9 @@ landing.playOfflineBtn.addEventListener("click", () => {
   clearRoomSession();
   disconnectRealtime();
   setAppPath(buildOfflinePath(), true);
-  landing.hide();
-  startSpellcast();
+  landing.transitionOut(() => {
+    startSpellcast();
+  });
 });
 
 landing.createBackBtn.addEventListener("click", () => {
@@ -292,11 +313,18 @@ landing.lobbyStartBtn.addEventListener("click", () => {
     .finally(() => landing.setLobbyStarting(false));
 });
 
-const isOfflineRoute = getRelativePath().toLowerCase() === "/offline";
+const relativePath = getRelativePath().toLowerCase();
+const isOfflineRoute = relativePath === "/offline";
+const isDebugRoute = isDebugMode && relativePath === "/debug";
 if (isOfflineRoute) {
   landing.hide();
   startSpellcast();
   setAppPath(buildOfflinePath(), true);
+} else if (isDebugRoute) {
+  landing.hide();
+  startSpellcast();
+  setupDebugPanel();
+  setAppPath(buildDebugPath(), true);
 } else if (existingRoomFromPath) {
   landing.showView("join");
   landing.joinRoomInput.value = existingRoomFromPath;
@@ -385,10 +413,8 @@ async function leaveCurrentRoom() {
     clearRoomSession();
     hasEnteredGame = false;
     setAppPath(HOME_PATH, true);
-    landing.showView("menu");
-    landing.setMessage("");
-    landing.show("menu");
     setGameVisibility(false);
+    showLandingAfterFade("menu", "");
   }
 }
 
@@ -501,15 +527,14 @@ function handleRoomUpdate(room: RoomDTO) {
   if (hasEnteredGame && room.status === "lobby") {
     hasEnteredGame = false;
     setGameVisibility(false);
-    landing.showView("lobby");
-    landing.show();
-    landing.setMessage("Game complete. Waiting for the host to start again.", "info");
-    renderLobby(room);
-    if (game) {
-      game.dispose();
-      game = null;
-      app.innerHTML = "";
-    }
+    showLandingAfterFade("lobby", "Game complete. Waiting for the host to start again.", "info", () => {
+      renderLobby(room);
+      if (game) {
+        game.dispose();
+        game = null;
+        app.innerHTML = "";
+      }
+    });
   }
   if (hasEnteredGame) {
     updateGamePlayers(room);
@@ -540,12 +565,11 @@ async function handleForcedRemoval() {
   hasPlayerSnapshot = false;
   hasEnteredGame = false;
   lastRoomStatus = null;
-  landing.showView("menu");
-  landing.show();
-  landing.setMessage("You were removed from the room.", "error");
-  setAppPath(HOME_PATH, true);
-  isHandlingKick = false;
   setGameVisibility(false);
+  showLandingAfterFade("menu", "You were removed from the room.", "error", () => {
+    setAppPath(HOME_PATH, true);
+    isHandlingKick = false;
+  });
 }
 
 function renderLobby(room: RoomDTO) {
@@ -584,12 +608,13 @@ function renderLobby(room: RoomDTO) {
 function enterGame(room: RoomDTO) {
   if (!lobbyContext) return;
   const initial = roomToInitialState(room, lobbyContext.playerId);
-  landing.hide();
-  hasEnteredGame = true;
-  startSpellcast(initial, { multiplayer: multiplayerBridge ?? undefined });
-  if (room.game && game) {
-    game.applyGameSnapshot(room.game);
-  }
+  landing.transitionOut(() => {
+    hasEnteredGame = true;
+    startSpellcast(initial, { multiplayer: multiplayerBridge ?? undefined });
+    if (room.game && game) {
+      game.applyGameSnapshot(room.game);
+    }
+  });
 }
 
 function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
@@ -652,9 +677,9 @@ function exitOfflineGame() {
   game = null;
   app.innerHTML = "";
   setGameVisibility(false);
-  landing.show("menu");
-  landing.setMessage("");
-  setAppPath(HOME_PATH, true);
+  showLandingAfterFade("menu", "", "info", () => {
+    setAppPath(HOME_PATH, true);
+  });
 }
 
 function saveName(name: string) {
@@ -724,6 +749,31 @@ function detectRoomIdFromLocation(): string | null {
   return null;
 }
 
+function setupDebugPanel() {
+  const panel = document.createElement("div");
+  panel.style.position = "fixed";
+  panel.style.top = "12px";
+  panel.style.left = "12px";
+  panel.style.zIndex = "200000";
+  panel.style.background = "rgba(255,255,255,0.08)";
+  panel.style.border = "1px solid rgba(255,255,255,0.25)";
+  panel.style.borderRadius = "8px";
+  panel.style.padding = "10px";
+  panel.style.color = "#fff";
+  panel.style.fontFamily = "monospace";
+  panel.textContent = "Debug";
+
+  const btn = document.createElement("button");
+  btn.textContent = "Preview Endgame";
+  btn.style.marginTop = "8px";
+  btn.addEventListener("click", () => {
+    game?.debugShowEndgamePreview();
+  });
+
+  panel.appendChild(btn);
+  document.body.appendChild(panel);
+}
+
 function getRelativePath(): string {
   if (BASE_PATH && window.location.pathname.startsWith(BASE_PATH)) {
     return window.location.pathname.slice(BASE_PATH.length);
@@ -737,6 +787,10 @@ function buildRoomPath(roomId: string) {
 
 function buildOfflinePath() {
   return `${BASE_PATH}/offline`;
+}
+
+function buildDebugPath() {
+  return `${BASE_PATH}/debug`;
 }
 
 function buildShareUrl(roomId: string) {
@@ -894,30 +948,51 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const overlay = document.createElement("div");
   overlay.className = "landing-overlay";
 
-  const panel = document.createElement("div");
-  panel.className = "landing-panel landing-panel--stacked";
-
-  const viewsWrap = document.createElement("div");
-  viewsWrap.className = "landing-views";
-
-  const status = document.createElement("div");
-  status.className = "landing-panel__status";
-  status.hidden = true;
-
-  panel.appendChild(viewsWrap);
-  panel.appendChild(status);
-  overlay.appendChild(panel);
+  const panelsWrap = document.createElement("div");
+  panelsWrap.className = "landing-panels";
+  overlay.appendChild(panelsWrap);
   document.body.appendChild(overlay);
 
   let activeView: LandingView = "menu";
   let visible = true;
 
-  const viewMap = new Map<LandingView, HTMLElement>();
+  const viewMap = new Map<
+    LandingView,
+    { panel: HTMLElement; view: HTMLElement; status: HTMLElement }
+  >();
+  let viewTransitionTimer: number | null = null;
+  let panelHeightLockTimer: number | null = null;
+  const transitionMs = TRANSITION_MS;
   const registerView = (name: LandingView, element: HTMLElement) => {
     element.dataset.view = name;
     element.classList.add("landing-view");
-    viewsWrap.appendChild(element);
-    viewMap.set(name, element);
+    element.hidden = true;
+    const status = document.createElement("div");
+    status.className = "landing-panel__status";
+    status.hidden = true;
+    const panel = document.createElement("div");
+    panel.className = "landing-panel landing-panel--stacked landing-panel--hidden";
+    panel.hidden = true;
+    panel.appendChild(element);
+    panel.appendChild(status);
+    panelsWrap.appendChild(panel);
+    viewMap.set(name, { panel, view: element, status });
+  };
+
+  const lockPanelHeight = () => {
+    if (panelHeightLockTimer) {
+      window.clearTimeout(panelHeightLockTimer);
+      panelHeightLockTimer = null;
+    }
+    const activePanel = viewMap.get(activeView)?.panel;
+    const h = activePanel?.getBoundingClientRect().height ?? 0;
+    if (h > 0) {
+      panelsWrap.style.minHeight = `${h}px`;
+      panelHeightLockTimer = window.setTimeout(() => {
+        panelsWrap.style.minHeight = "";
+        panelHeightLockTimer = null;
+      }, transitionMs + 40);
+    }
   };
 
   // Menu view
@@ -1252,23 +1327,65 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   };
 
   const showView = (name: LandingView) => {
+    const next = viewMap.get(name);
+    if (!next) return;
+    if (activeView === name && !next.panel.hidden) return;
+    const previous = viewMap.get(activeView);
     activeView = name;
-    viewMap.forEach((view, key) => {
-      view.hidden = key !== name;
+
+    if (viewTransitionTimer) {
+      window.clearTimeout(viewTransitionTimer);
+      viewTransitionTimer = null;
+    }
+
+    // If there's a previous view visible, let it exit first, then bring the next one in.
+    if (previous && !previous.panel.hidden && previous !== next) {
+      lockPanelHeight();
+      previous.panel.classList.remove("landing-panel--active");
+      previous.panel.classList.add("landing-panel--exit");
+      next.panel.classList.remove("landing-panel--active", "landing-panel--exit");
+      next.panel.hidden = true;
+      viewTransitionTimer = window.setTimeout(() => {
+        previous.panel.classList.remove("landing-panel--exit");
+        previous.panel.hidden = true;
+        next.panel.hidden = false;
+        // Allow the browser to apply the hidden->visible styles before animating in.
+        next.panel.classList.remove("landing-panel--active", "landing-panel--exit");
+        // Force reflow so the transition runs when we add the active class.
+        void next.panel.getBoundingClientRect();
+        requestAnimationFrame(() => {
+          next.panel.classList.add("landing-panel--active");
+        });
+      }, transitionMs);
+      return;
+    }
+
+    // No prior view to exit; just activate the target immediately.
+    viewMap.forEach(({ panel }) => {
+      const isTarget = panel === next.panel;
+      panel.hidden = !isTarget;
+      panel.classList.toggle("landing-panel--active", isTarget);
+      panel.classList.remove("landing-panel--exit");
     });
   };
 
   const setMessage = (message: string, tone: "info" | "error" = "info") => {
+    viewMap.forEach(({ status }) => {
+      status.textContent = "";
+      status.hidden = true;
+    });
+    const status = viewMap.get(activeView)?.status;
+    if (!status) return;
     status.textContent = message;
     status.hidden = !message;
     status.dataset.tone = tone;
   };
 
   const setBusy = (state: boolean, message?: string) => {
-    panel.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
+    panelsWrap.querySelectorAll<HTMLButtonElement>("button").forEach((btn) => {
       btn.disabled = state;
     });
-    panel.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
+    panelsWrap.querySelectorAll<HTMLInputElement>("input").forEach((input) => {
       input.disabled = state;
     });
     overlay.classList.toggle("landing-overlay--loading", state);
@@ -1279,9 +1396,21 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     }
   };
 
+  // initialize with default view visible
+  showView(activeView);
+
   return {
     root: overlay,
     showView,
+    transitionOut(after?: () => void) {
+      hideOverlay();
+      window.setTimeout(() => after?.(), transitionMs);
+    },
+    transitionIn(view?: LandingView, after?: () => void) {
+      if (view) showView(view);
+      showOverlay();
+      window.setTimeout(() => after?.(), transitionMs);
+    },
     hide() {
       hideOverlay();
     },
