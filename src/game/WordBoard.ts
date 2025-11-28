@@ -4,7 +4,8 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
-  Texture
+  Texture,
+  DoubleSide
 } from "three";
 import type { TileModel } from "../shared/gameTypes";
 import {
@@ -42,6 +43,7 @@ export interface Tile {
   badge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
   wordMultiplier: WordMultiplier;
   wordBadge?: Mesh<PlaneGeometry, MeshBasicMaterial>;
+  wordOutline?: Mesh;
   bagTracked: boolean;
 }
 
@@ -351,12 +353,13 @@ export class WordBoard extends Group {
     this.currentWordMultiplierRound = roundValue;
     const previousState = this.wordMultiplierEnabled;
     this.wordMultiplierEnabled = enabled;
+    const providedTile = typeof options?.tileId === "string" ? options.tileId : undefined;
 
     if (this.wordMultiplierControl === "sync") {
       if (!enabled) {
         this.roundWordTileId = undefined;
-      } else if (typeof options?.tileId === "string") {
-        this.roundWordTileId = options.tileId;
+      } else if (providedTile) {
+        this.roundWordTileId = providedTile;
       }
       return;
     }
@@ -370,7 +373,12 @@ export class WordBoard extends Group {
       return;
     }
 
-    const shouldSelectNew = roundChanged || !previousState || !this.roundWordTileId;
+    if (providedTile) {
+      this.roundWordTileId = providedTile;
+    }
+
+    const shouldSelectNew =
+      !providedTile && (roundChanged || !previousState || !this.roundWordTileId);
     if (shouldSelectNew) {
       this.roundWordTileId = this.pickRoundWordTile(roundChanged || !previousState);
     }
@@ -592,11 +600,22 @@ export class WordBoard extends Group {
       tile.mesh.remove(tile.wordBadge);
       tile.wordBadge = undefined;
     }
+    if (tile.wordOutline) {
+      tile.mesh.remove(tile.wordOutline);
+      tile.wordOutline = undefined;
+    }
     if (tile.wordMultiplier === "none") return;
+
     const badge = this.createWordMultiplierBadge();
     badge.position.set(0.45, 0.45, 0.05);
+
+    const outline = this.createWordMultiplierOutline();
+    outline.position.set(0, 0, 0.01);
+
+    tile.mesh.add(outline);
     tile.mesh.add(badge);
     tile.wordBadge = badge;
+    tile.wordOutline = outline;
   }
 
   private createWordMultiplierBadge(): Mesh<PlaneGeometry, MeshBasicMaterial> {
@@ -612,6 +631,41 @@ export class WordBoard extends Group {
     return mesh;
   }
 
+  private wordOutlineMaterial?: MeshBasicMaterial;
+
+  private createWordMultiplierOutline(): Mesh<PlaneGeometry, MeshBasicMaterial> {
+    if (!this.wordOutlineMaterial) {
+      const texture = this.generateWordOutlineTexture();
+      this.wordOutlineMaterial = new MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        side: DoubleSide,
+        depthWrite: false
+      });
+    }
+    const geo = new PlaneGeometry(1.15, 1.15);
+    const mesh = new Mesh(geo, this.wordOutlineMaterial);
+    mesh.renderOrder = 4;
+    return mesh;
+  }
+
+  private generateWordOutlineTexture(): CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+    ctx.clearRect(0, 0, size, size);
+    ctx.strokeStyle = "rgba(44, 208, 165, 1)";
+    ctx.lineWidth = 20;
+    ctx.lineJoin = "round";
+    const inset = 16;
+    ctx.strokeRect(inset, inset, size - inset * 2, size - inset * 2);
+    const texture = new CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   private generateWordMultiplierBadgeTexture(): CanvasTexture {
     const size = 256;
     const canvas = document.createElement("canvas");
@@ -620,8 +674,8 @@ export class WordBoard extends Group {
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Failed to get 2d context");
 
-    ctx.fillStyle = "#2cd0a5";
-    ctx.strokeStyle = "rgba(0,0,0,0.45)";
+    ctx.fillStyle = "rgba(44, 208, 165, 1)";
+    ctx.strokeStyle = "rgba(44, 208, 165, .45)";
     ctx.lineWidth = 18;
     ctx.beginPath();
     ctx.arc(size / 2, size / 2, size / 2 - 18, 0, Math.PI * 2);

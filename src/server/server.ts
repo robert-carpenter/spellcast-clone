@@ -21,6 +21,7 @@ import {
   submitWord
 } from "../shared/rules.js";
 import { Room, Player } from "./types.js";
+import type { ChatMessage } from "../shared/chat.js";
 
 interface BackendOptions {
   serveClient?: boolean;
@@ -44,6 +45,8 @@ let activeIo: SocketIOServer | null = null;
 const MAX_PLAYERS = 6;
 const DISCONNECT_GRACE_MS = 5 * 60 * 1000; // allow mobile browsers to background for up to 5 minutes
 const NEW_GAME_DELAY_MS = 5000;
+const MAX_CHAT_HISTORY = 200;
+const MAX_CHAT_LENGTH = 500;
 const DICTIONARY = loadDictionary();
 const SESSION_COOKIE = "discord_session";
 const STATE_COOKIE = "discord_state";
@@ -216,7 +219,8 @@ function registerHttpRoutes(app: ExpressApp, options: BackendOptions) {
       hostId: host.id,
       players: [host],
       status: "lobby",
-      rounds: DEFAULT_ROUND_COUNT
+      rounds: DEFAULT_ROUND_COUNT,
+      chat: []
     };
     rooms.set(roomId, room);
 
@@ -386,6 +390,9 @@ function registerSocketHandlers(io: SocketIOServer) {
       socket.emit("room:error", { message: "Room not found or player missing" });
       return socket.disconnect(true);
     }
+    if (!room.chat) {
+      room.chat = [];
+    }
 
     socket.join(roomCode);
     log("socket join room", socket.id, roomCode);
@@ -514,6 +521,27 @@ function registerSocketHandlers(io: SocketIOServer) {
           currentRoom.game,
           `Round ${currentRoom.game.round}: ${currentPlayer.name}'s turn was skipped by the host.`
         );
+      }
+      broadcastRoom(roomCode);
+    });
+
+    socket.on("chat:send", (payload: { text?: string }) => {
+      log("chat:send", playerId, payload);
+      const currentRoom = rooms.get(roomCode);
+      if (!currentRoom) return;
+      const sender = currentRoom.players.find((p) => p.id === playerId);
+      const rawText = typeof payload?.text === "string" ? payload.text.trim() : "";
+      if (!sender || !rawText) return;
+      const message: ChatMessage = {
+        id: randomUUID(),
+        playerId,
+        playerName: sender.name,
+        text: rawText.slice(0, MAX_CHAT_LENGTH),
+        createdAt: Date.now()
+      };
+      currentRoom.chat.push(message);
+      if (currentRoom.chat.length > MAX_CHAT_HISTORY) {
+        currentRoom.chat.splice(0, currentRoom.chat.length - MAX_CHAT_HISTORY);
       }
       broadcastRoom(roomCode);
     });

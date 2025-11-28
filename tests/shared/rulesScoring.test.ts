@@ -32,6 +32,14 @@ describe("Shared rules scoring and turn flow", () => {
   it("scores a word with multipliers and advances turn", () => {
     const room = makeRoom();
     const game = room.game!;
+    // Disable random multipliers so only our manual placements apply.
+    game.multipliersEnabled = false;
+    game.wordMultiplierEnabled = false;
+    game.roundWordTileId = undefined;
+    game.tiles.forEach((t) => {
+      t.multiplier = "none";
+      t.wordMultiplier = "none";
+    });
 
     // Set up a word with a double-letter and double-word
     const ids = ["0-0", "1-0", "2-0"];

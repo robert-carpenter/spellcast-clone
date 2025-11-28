@@ -18,6 +18,7 @@ const makeRoom = (): Room => ({
   hostId: "p1",
   status: "in-progress",
   rounds: 5,
+  chat: [],
   players: [
     {
       id: "p1",
@@ -75,6 +76,13 @@ describe("gameState vowels", () => {
 });
 
 describe("round and multiplier rules", () => {
+  it("first round spawns letter multipliers (double/triple) on the board", () => {
+    const room = makeRoom();
+    const game = room.game!;
+    const hasLetterMultiplier = game.tiles.some((t) => t.multiplier !== "none");
+    expect(hasLetterMultiplier).toBe(true);
+  });
+
   it("advancing round does not reshuffle or refresh board (letters and gems unchanged)", () => {
     const room = makeRoom();
     const game = room.game!;

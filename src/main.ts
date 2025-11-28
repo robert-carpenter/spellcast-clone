@@ -15,6 +15,7 @@ import {
 } from "./network/api";
 import { connectRoomSocket, RoomSocket } from "./network/socket";
 import { soundManager } from "./audio/SoundManager";
+import type { ChatMessage } from "./shared/chat";
 
 type RoomStatus = RoomDTO["status"];
 
@@ -476,8 +477,18 @@ function connectRealtime(roomId: string, playerId: string) {
       }
       void handleForcedRemoval();
     },
-    onConnect: () => hideConnectionNotice(),
-    onReconnect: () => hideConnectionNotice()
+    onConnect: () => {
+      hideConnectionNotice();
+      markSelfConnected();
+    },
+    onReconnect: () => {
+      hideConnectionNotice();
+      markSelfConnected();
+    }
+  });
+  landing.setChatSendHandler((text) => {
+    if (!roomSocket) return;
+    roomSocket.emit("chat:send", { text });
   });
   multiplayerBridge = createMultiplayerBridge(roomSocket, roomId, playerId);
 }
@@ -488,6 +499,7 @@ function disconnectRealtime() {
     roomSocket.disconnect();
     roomSocket = null;
   }
+  landing.setChatSendHandler(() => {});
   hideConnectionNotice();
 }
 
@@ -540,6 +552,9 @@ function handleRoomUpdate(room: RoomDTO) {
     updateGamePlayers(room);
     if (room.game && game) {
       game.applyGameSnapshot(room.game);
+    }
+    if (game) {
+      game.updateChat(room.chat ?? []);
     }
   }
 }
@@ -599,9 +614,9 @@ function renderLobby(room: RoomDTO) {
     canStart,
     isHost,
     status: room.status,
-    minPlayersMet: activeCount >= 1,
     rounds: room.rounds ?? 5,
-    canEditRounds: isHost && room.status === "lobby"
+    canEditRounds: isHost && room.status === "lobby",
+    chat: room.chat ?? []
   });
 }
 
@@ -627,11 +642,12 @@ function roomToInitialState(room: RoomDTO, playerId: string): InitialRoomState {
       score: player.score,
       gems: player.gems,
       isHost: player.id === room.hostId,
-      connected: player.connected,
+      connected: player.id === playerId ? true : player.connected,
       isSpectator: player.isSpectator ?? false
     })),
     game: room.game,
-    rounds: room.rounds
+    rounds: room.rounds,
+    chat: room.chat ?? []
   };
 }
 
@@ -642,7 +658,7 @@ function updateGamePlayers(room: RoomDTO) {
     isHost: player.id === room.hostId,
     score: player.score,
     gems: player.gems,
-    connected: player.connected,
+    connected: player.id === lobbyContext?.playerId ? true : player.connected,
     isSpectator: player.isSpectator ?? false
   }));
   game?.syncRoomPlayers(snapshot);
@@ -669,6 +685,20 @@ function handleGameExit() {
     });
   } else {
     exitOfflineGame();
+  }
+}
+
+function markSelfConnected() {
+  if (!lobbyContext || !latestRoomSnapshot) return;
+  const updatedPlayers = latestRoomSnapshot.players.map((p) =>
+    p.id === lobbyContext.playerId ? { ...p, connected: true } : p
+  );
+  latestRoomSnapshot = { ...latestRoomSnapshot, players: updatedPlayers };
+  if (landing.isVisible() && landing.currentView === "lobby") {
+    renderLobby(latestRoomSnapshot);
+  }
+  if (hasEnteredGame && game) {
+    updateGamePlayers(latestRoomSnapshot);
   }
 }
 
@@ -914,6 +944,10 @@ function createMultiplayerBridge(
     skipTurn(playerId: string) {
       console.log("[client][socket] emit game:skip", playerId);
       socket.emit("game:skip", { playerId });
+    },
+    sendChatMessage(text: string) {
+      console.log("[client][socket] emit chat:send");
+      socket.emit("chat:send", { text });
     }
   };
 }
@@ -939,9 +973,9 @@ interface LobbyRenderData {
   canStart: boolean;
   isHost: boolean;
   status: RoomStatus;
-  minPlayersMet: boolean;
   rounds: number;
   canEditRounds: boolean;
+  chat: ChatMessage[];
 }
 
 function createLandingOverlay(options: LandingOverlayOptions) {
@@ -972,6 +1006,9 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     status.hidden = true;
     const panel = document.createElement("div");
     panel.className = "landing-panel landing-panel--stacked landing-panel--hidden";
+    if (name === "lobby") {
+      panel.classList.add("landing-panel--lobby");
+    }
     panel.hidden = true;
     panel.appendChild(element);
     panel.appendChild(status);
@@ -1146,6 +1183,12 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const lobbyView = document.createElement("div");
   lobbyView.className = "landing-view__lobby";
 
+  const lobbyLayout = document.createElement("div");
+  lobbyLayout.className = "lobby-layout";
+
+  const lobbyLeft = document.createElement("div");
+  lobbyLeft.className = "lobby-left";
+
   const lobbyHeader = document.createElement("div");
   lobbyHeader.className = "lobby-header";
   const lobbyTitle = document.createElement("h2");
@@ -1156,8 +1199,6 @@ function createLandingOverlay(options: LandingOverlayOptions) {
 
   const lobbyShareWrap = document.createElement("div");
   lobbyShareWrap.className = "lobby-share";
-  const shareLabel = document.createElement("span");
-  shareLabel.textContent = "Invite link";
   const shareRow = document.createElement("div");
   shareRow.className = "lobby-share__row";
   const shareInput = document.createElement("input");
@@ -1211,7 +1252,7 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       });
   });
   shareRow.append(shareInput, shareCopy);
-  lobbyShareWrap.append(shareLabel, shareRow);
+  lobbyShareWrap.append(shareRow);
 
   const lobbyDivider = document.createElement("hr");
   lobbyDivider.className = "lobby-divider";
@@ -1221,9 +1262,6 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   const lobbyPlayersHeader = document.createElement("h3");
   lobbyPlayersHeader.className = "lobby-players__heading";
   lobbyPlayersHeader.textContent = "Players";
-
-  const lobbyStatusText = document.createElement("p");
-  lobbyStatusText.className = "lobby-status";
 
   const lobbyRounds = document.createElement("div");
   lobbyRounds.className = "lobby-rounds";
@@ -1264,6 +1302,7 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   let roundsChangeHandler: ((rounds: number) => void) | null = null;
   let roundsEditable = false;
   let roundsBusy = false;
+  let lobbyChatSendHandler: ((text: string) => void) | null = null;
   const syncRoundInputs = () => {
     const disabled = !roundsEditable || roundsBusy;
     roundInputs.forEach((input) => {
@@ -1301,16 +1340,74 @@ function createLandingOverlay(options: LandingOverlayOptions) {
   });
   setRoundsSelection(5);
 
-  lobbyView.append(
+  // Lobby chat (right side)
+  const lobbyChatPanel = document.createElement("div");
+  lobbyChatPanel.className = "lobby-chat";
+  const lobbyChatHeader = document.createElement("div");
+  lobbyChatHeader.className = "lobby-chat__header";
+  const lobbyChatTitle = document.createElement("h3");
+  lobbyChatTitle.textContent = "Lobby Chat";
+  lobbyChatHeader.append(lobbyChatTitle);
+  const lobbyChatMessages = document.createElement("div");
+  lobbyChatMessages.className = "lobby-chat__messages";
+  const lobbyChatForm = document.createElement("form");
+  lobbyChatForm.className = "lobby-chat__form";
+  const lobbyChatInput = document.createElement("input");
+  lobbyChatInput.type = "text";
+  lobbyChatInput.placeholder = "Type a message...";
+  lobbyChatInput.className = "lobby-chat__input";
+  const lobbyChatSend = document.createElement("button");
+  lobbyChatSend.type = "submit";
+  lobbyChatSend.className = "lobby-chat__send";
+  const chatSendIcon = document.createElement("i");
+  chatSendIcon.className = "fa-solid fa-paper-plane";
+  lobbyChatSend.append(chatSendIcon);
+  lobbyChatForm.append(lobbyChatInput, lobbyChatSend);
+  lobbyChatPanel.append(lobbyChatHeader, lobbyChatMessages, lobbyChatForm);
+
+  const renderLobbyChat = (messages: ChatMessage[]) => {
+    lobbyChatMessages.innerHTML = "";
+    const sorted = messages.slice().sort((a, b) => a.createdAt - b.createdAt);
+    sorted.forEach((msg) => {
+      const row = document.createElement("div");
+      row.className = "lobby-chat__message";
+      const meta = document.createElement("div");
+      meta.className = "lobby-chat__meta";
+      const time = new Date(msg.createdAt);
+      meta.textContent = `${msg.playerName} • ${time.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      })}`;
+      const body = document.createElement("div");
+      body.className = "lobby-chat__text";
+      body.textContent = msg.text;
+      row.append(meta, body);
+      lobbyChatMessages.append(row);
+    });
+    lobbyChatMessages.scrollTop = lobbyChatMessages.scrollHeight;
+  };
+
+  lobbyChatForm.addEventListener("submit", (evt) => {
+    evt.preventDefault();
+    const value = lobbyChatInput.value.trim();
+    if (!value) return;
+    lobbyChatSendHandler?.(value);
+    lobbyChatInput.value = "";
+    lobbyChatInput.focus();
+  });
+
+  lobbyLeft.append(
     lobbyHeader,
     lobbyShareWrap,
     lobbyDivider,
     lobbyPlayersHeader,
     lobbyPlayersList,
-    lobbyStatusText,
     lobbyRounds,
     lobbyActions
   );
+
+  lobbyLayout.append(lobbyLeft, lobbyChatPanel);
+  lobbyView.append(lobbyLayout);
   registerView("lobby", lobbyView);
 
   const hideOverlay = () => {
@@ -1457,6 +1554,9 @@ function createLandingOverlay(options: LandingOverlayOptions) {
     onRoundsChange(handler: (rounds: number) => void) {
       roundsChangeHandler = handler;
     },
+    setChatSendHandler(handler: (text: string) => void) {
+      lobbyChatSendHandler = handler;
+    },
     updateLobby(data: LobbyRenderData) {
       lobbyRoomCode.textContent = `Room ${data.roomCode}`;
       shareInput.value = data.shareUrl;
@@ -1522,21 +1622,13 @@ function createLandingOverlay(options: LandingOverlayOptions) {
       lobbyStartBtn.style.display = data.isHost ? "inline-flex" : "none";
       setRoundsSelection(data.rounds);
       setRoundsEditable(data.canEditRounds);
-      if (!data.isHost) {
-        lobbyStatusText.textContent = "Waiting for the host to start the game.";
-      } else if (!data.minPlayersMet) {
-        lobbyStatusText.textContent = "Need at least one player to start.";
-      } else if (data.status === "in-progress") {
-        lobbyStatusText.textContent = "Game starting...";
-      } else {
-        lobbyStatusText.textContent = "";
-      }
       lobbyLeaveBtn.disabled = false;
       if (!data.isHost) {
         lobbyStartBtn.classList.remove("primary");
       } else {
         lobbyStartBtn.classList.add("primary");
       }
+      renderLobbyChat(data.chat);
     },
     setKickHandler(handler: (playerId: string) => void) {
       kickHandler = handler;

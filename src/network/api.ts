@@ -1,4 +1,5 @@
 import type { GameSnapshot } from "../shared/gameTypes";
+import type { ChatMessage } from "../shared/chat";
 
 export interface RoomPlayerDTO {
   id: string;
@@ -17,6 +18,7 @@ export interface RoomDTO {
   status: "lobby" | "in-progress";
   rounds: number;
   game?: GameSnapshot;
+  chat: ChatMessage[];
 }
 
 export interface CreateRoomResponse {

@@ -1,4 +1,5 @@
 import { GameSnapshot } from "../shared/gameTypes.js";
+import type { ChatMessage } from "../shared/chat.js";
 
 export interface Player {
   id: string;
@@ -24,4 +25,5 @@ export interface Room {
   status: "lobby" | "in-progress";
   rounds: number;
   game?: GameState;
+  chat: ChatMessage[];
 }

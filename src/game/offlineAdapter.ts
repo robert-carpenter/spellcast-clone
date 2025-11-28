@@ -31,6 +31,7 @@ export class OfflineAdapter {
       status: "in-progress",
       rounds: options?.totalRounds ?? 5,
       players: [],
+      chat: [],
       game: undefined
     };
     this.room.game = createInitialGameState(this.room.rounds);

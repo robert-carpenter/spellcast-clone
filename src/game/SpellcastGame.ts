@@ -2,6 +2,7 @@ import { OrthographicCamera, Raycaster, Scene, Vector2, WebGLRenderer } from "th
 import { gsap } from "gsap";
 import { MotionPathPlugin } from "gsap/MotionPathPlugin";
 import type { GameSnapshot } from "../shared/gameTypes";
+import type { ChatMessage } from "../shared/chat";
 import { OfflineAdapter } from "./offlineAdapter";
 import { LETTER_VALUES } from "../shared/constants";
 import { WordBoard, Tile } from "./WordBoard";
@@ -27,6 +28,7 @@ export interface InitialRoomState {
   players: Player[];
   game?: GameSnapshot;
   rounds?: number;
+  chat?: ChatMessage[];
 }
 
 export interface MultiplayerController {
@@ -38,6 +40,7 @@ export interface MultiplayerController {
   updateSelection(tileIds: string[]): void | Promise<void>;
   kickPlayer?(playerId: string): void | Promise<void>;
   skipTurn?(playerId: string): void | Promise<void>;
+  sendChatMessage?(text: string): void | Promise<void>;
 }
 
 export class SpellcastGame {
@@ -91,6 +94,12 @@ export class SpellcastGame {
   private motionRegistered = false;
   private lastSparkleTime = 0;
   private offlineAdapter?: OfflineAdapter;
+  private chatMessages: ChatMessage[] = [];
+  private chatUI?: { overlay: HTMLElement; list: HTMLElement; input: HTMLInputElement };
+  private chatButton?: HTMLButtonElement;
+  private chatBadge?: HTMLElement;
+  private chatUnread = 0;
+  private lastChatReadAt = 0;
 
   private syncOfflineSnapshot() {
     const snap = this.offlineAdapter?.snapshot();
@@ -149,6 +158,11 @@ export class SpellcastGame {
         this.totalRounds = roomState.game.totalRounds;
       } else if (roomState.rounds) {
         this.totalRounds = roomState.rounds;
+      }
+      this.chatMessages = roomState.chat ?? [];
+      if (this.chatMessages.length) {
+        const latest = Math.max(...this.chatMessages.map((m) => m.createdAt));
+        this.lastChatReadAt = latest;
       }
     } else {
       this.players = [
@@ -399,6 +413,16 @@ export class SpellcastGame {
     dictionaryButton.appendChild(dictionaryIcon);
     dictionaryButton.addEventListener("click", () => this.showDictionarySearch());
 
+    const chatButton = document.createElement("button");
+    chatButton.className = "player-action-btn chat-btn";
+    chatButton.setAttribute("aria-label", "Open chat");
+    const chatIcon = document.createElement("i");
+    chatIcon.className = "fa-solid fa-message";
+    chatButton.appendChild(chatIcon);
+    chatButton.addEventListener("click", () => this.showChatModal());
+    this.chatButton = chatButton;
+    this.updateChatBadge();
+
     const logButton = document.createElement("button");
     logButton.className = "player-action-btn";
     logButton.setAttribute("aria-label", "View activity log");
@@ -420,7 +444,11 @@ export class SpellcastGame {
       window.dispatchEvent(new CustomEvent("spellcast:exit"));
     });
 
-    actionTray.append(dictionaryButton, logButton, exitButton);
+    if (this.isMultiplayer) {
+      actionTray.append(dictionaryButton, chatButton, logButton, exitButton);
+    } else {
+      actionTray.append(dictionaryButton, logButton, exitButton);
+    }
 
     if (this.isMultiplayer) {
       controls.style.display = "none";
@@ -1237,6 +1265,140 @@ export class SpellcastGame {
     });
   }
 
+  public updateChat(messages: ChatMessage[]) {
+    this.chatMessages = messages.slice().sort((a, b) => a.createdAt - b.createdAt);
+    if (this.chatUI) {
+      this.renderChatMessages(this.chatUI.list);
+      if (this.chatMessages.length) {
+        this.lastChatReadAt = Math.max(...this.chatMessages.map((m) => m.createdAt));
+        this.chatUnread = 0;
+        this.updateChatBadge();
+      }
+    } else {
+      const latestRead = this.lastChatReadAt;
+      const unread = this.chatMessages.filter((m) => m.createdAt > latestRead).length;
+      this.chatUnread = unread;
+      this.updateChatBadge();
+    }
+  }
+
+  private renderChatMessages(list: HTMLElement) {
+    list.innerHTML = "";
+    this.chatMessages.forEach((msg) => {
+      const row = document.createElement("div");
+      row.className = "chat-modal__message";
+
+      const meta = document.createElement("div");
+      meta.className = "chat-modal__meta";
+      const time = new Date(msg.createdAt);
+      meta.textContent = `${msg.playerName} • ${time.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
+      })}`;
+
+      const body = document.createElement("div");
+      body.className = "chat-modal__text";
+      body.textContent = msg.text;
+
+      row.append(meta, body);
+      list.appendChild(row);
+    });
+    list.scrollTop = list.scrollHeight;
+  }
+
+  private showChatModal() {
+    if (this.isModalOpen || !this.isMultiplayer) return;
+    this.isModalOpen = true;
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay modal--entering chat-modal-overlay";
+    const modal = document.createElement("div");
+    modal.className = "modal modal--theme chat-modal";
+
+    const header = document.createElement("div");
+    header.className = "chat-modal__header";
+    const title = document.createElement("h3");
+    title.textContent = "Game Chat";
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "chat-modal__close";
+    closeBtn.setAttribute("aria-label", "Close chat");
+    closeBtn.innerHTML = "&times;";
+    header.append(title, closeBtn);
+
+    const messages = document.createElement("div");
+    messages.className = "chat-modal__messages";
+
+    const form = document.createElement("form");
+    form.className = "chat-modal__input-row";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "Type a message...";
+    input.className = "chat-modal__input";
+    const sendBtn = document.createElement("button");
+    sendBtn.type = "submit";
+    sendBtn.className = "chat-modal__send";
+    const sendIcon = document.createElement("i");
+    sendIcon.className = "fa-solid fa-paper-plane";
+    sendBtn.appendChild(sendIcon);
+    form.append(input, sendBtn);
+
+    const close = () => {
+      overlay.classList.add("modal--leaving");
+      window.setTimeout(() => {
+        overlay.remove();
+        this.isModalOpen = false;
+        this.chatUI = undefined;
+      }, 200);
+    };
+
+    closeBtn.addEventListener("click", close);
+    overlay.addEventListener("click", (evt) => {
+      if (evt.target === overlay) close();
+    });
+    form.addEventListener("submit", (evt) => {
+      evt.preventDefault();
+      this.sendChatMessage(input.value);
+      input.value = "";
+      input.focus();
+    });
+
+    modal.append(header, messages, form);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    this.chatUI = { overlay, list: messages, input };
+    this.renderChatMessages(messages);
+    if (this.chatMessages.length) {
+      this.lastChatReadAt = Math.max(...this.chatMessages.map((m) => m.createdAt));
+      this.chatUnread = 0;
+      this.updateChatBadge();
+    }
+    requestAnimationFrame(() => {
+      overlay.classList.remove("modal--entering");
+      input.focus();
+    });
+  }
+
+  private sendChatMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || !this.multiplayer?.sendChatMessage) return;
+    this.multiplayer.sendChatMessage(trimmed);
+  }
+
+  private updateChatBadge() {
+    if (!this.chatButton) return;
+    if (!this.chatBadge) {
+      const badge = document.createElement("span");
+      badge.className = "chat-badge";
+      this.chatButton.appendChild(badge);
+      this.chatBadge = badge;
+    }
+    if (this.chatUnread > 0) {
+      this.chatBadge.textContent = `${this.chatUnread}`;
+      this.chatBadge.style.display = "inline-flex";
+    } else {
+      this.chatBadge.style.display = "none";
+    }
+  }
+
   private playSubmissionAnimation(selection: Tile[]) {
     const submitContainer = this.submitAnimContainer;
     if (!submitContainer || !selection.length) return;
@@ -1886,6 +2048,10 @@ export class SpellcastGame {
         });
       }
     });
+    if (this.playerId) {
+      const me = next.find((p) => p.id === this.playerId);
+      if (me) me.connected = true;
+    }
     this.players = next;
     if (this.playerId) {
       const me = this.players.find((player) => player.id === this.playerId);

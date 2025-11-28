@@ -75,7 +75,7 @@ export interface ActionResult {
 }
 
 export function createInitialGameState(totalRounds = DEFAULT_ROUND_COUNT): GameState {
-  const tiles = createTiles(false, false);
+  const tiles = createTiles(true, false);
   return {
     cols: BOARD_COLS,
     rows: BOARD_ROWS,
@@ -84,7 +84,7 @@ export function createInitialGameState(totalRounds = DEFAULT_ROUND_COUNT): GameS
     totalRounds,
     currentPlayerIndex: 0,
     turnStartedAt: Date.now(),
-    multipliersEnabled: false,
+    multipliersEnabled: true,
     wordMultiplierEnabled: false,
     roundWordTileId: undefined,
     swapModePlayerId: undefined,
@@ -199,20 +199,23 @@ export function shuffleBoard(room: Room, playerId: string): ActionResult {
     letter: tile.letter,
     multiplier: tile.multiplier,
     hasGem: tile.hasGem,
-    wordMultiplier: tile.wordMultiplier
+    wordMultiplier: "none" as WordMultiplier
   }));
+  const preservedWordId = game.wordMultiplierEnabled ? game.roundWordTileId : undefined;
   shuffleArray(payload);
   game.tiles.forEach((tile: TileModel, index: number) => {
     const data = payload[index];
     tile.letter = data.letter;
     tile.multiplier = data.multiplier;
     tile.hasGem = data.hasGem;
-    tile.wordMultiplier = data.wordMultiplier;
+    tile.wordMultiplier = "none";
   });
   // keep roundWordTileId stable during shuffle; if missing and enabled, pick one
   if (game.wordMultiplierEnabled && !game.roundWordTileId && game.tiles.length) {
     const random = game.tiles[Math.floor(Math.random() * game.tiles.length)];
     game.roundWordTileId = random?.id;
+  } else if (preservedWordId) {
+    game.roundWordTileId = preservedWordId;
   }
   applyRoundWordTile(game);
   return { success: true };
@@ -331,14 +334,7 @@ function refreshTiles(game: GameState, tiles: TileModel[]) {
   });
   topUpGems(game.tiles);
   applyRoundWordTile(game);
-  const currentVowels = game.tiles.reduce(
-    (count, t) => count + (isVowel(t.letter) ? 1 : 0),
-    0
-  );
-  const missing = Math.max(0, MIN_VOWELS - currentVowels);
-  if (missing > 0) {
-    ensureMinimumVowels(tiles, Math.min(missing, tiles.length), bag);
-  }
+  ensureMinimumVowels(game.tiles, MIN_VOWELS, bag);
 }
 
 function assignMultipliers(game: GameState) {
