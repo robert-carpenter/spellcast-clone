@@ -66,13 +66,13 @@ describe("Shared rules scoring and turn flow", () => {
   it("advances round when turn wraps and leaves board intact", () => {
     const room = makeRoom();
     const game = room.game!;
-    const snapshot = game.tiles.map((t) => t.letter + t.hasGem + t.multiplier);
+    const snapshot = game.tiles.map((t) => t.letter + t.hasGem);
     advanceTurn(room);
     expect(game.round).toBe(2); // wrap immediately with single player
     game.currentPlayerIndex = 0;
     advanceTurn(room);
     expect(game.round).toBe(3);
-    const after = game.tiles.map((t) => t.letter + t.hasGem + t.multiplier);
+    const after = game.tiles.map((t) => t.letter + t.hasGem);
     expect(after).toEqual(snapshot);
   });
 });

@@ -248,6 +248,10 @@ export function applySwap(
   if (player.gems < 3) {
     return { success: false, error: "You do not have enough gems." };
   }
+  // Preserve existing letter multipliers before mutating tiles.
+  const multiplierSnapshot = new Map<string, TileModel["multiplier"]>();
+  game.tiles.forEach((t) => multiplierSnapshot.set(t.id, t.multiplier));
+
   const tile = game.tiles.find((t: TileModel) => t.id === tileId);
   if (!tile) {
     return { success: false, error: "Tile not found." };
@@ -255,6 +259,10 @@ export function applySwap(
   player.gems -= 3;
   tile.letter = normalizeLetter(letter);
   tile.hasGem = tile.hasGem; // no change
+  // Restore multiplier state exactly as before the swap.
+  game.tiles.forEach((t) => {
+    t.multiplier = multiplierSnapshot.get(t.id) ?? "none";
+  });
   game.swapModePlayerId = undefined;
   return { success: true };
 }
@@ -415,6 +423,7 @@ export function advanceRound(room: Room) {
     game.round += 1;
     game.multipliersEnabled = game.round > 1;
     game.wordMultiplierEnabled = game.round >= 2;
+    assignMultipliers(game);
     if (!game.wordMultiplierEnabled) {
       game.roundWordTileId = undefined;
     }

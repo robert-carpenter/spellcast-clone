@@ -5,7 +5,10 @@ import {
   submitWord,
   advanceRound,
   shuffleBoard,
-  topUpGems
+  topUpGems,
+  toPublicGameState,
+  requestSwapMode,
+  applySwap
 } from "../../src/server/gameState.js";
 import type { Room } from "../../src/server/types.js";
 
@@ -78,8 +81,7 @@ describe("round and multiplier rules", () => {
     const snapshot = game.tiles.map((t) => ({
       id: t.id,
       letter: t.letter,
-      hasGem: t.hasGem,
-      multiplier: t.multiplier
+      hasGem: t.hasGem
     }));
 
     advanceRound(room);
@@ -87,8 +89,7 @@ describe("round and multiplier rules", () => {
     const next = game.tiles.map((t) => ({
       id: t.id,
       letter: t.letter,
-      hasGem: t.hasGem,
-      multiplier: t.multiplier
+      hasGem: t.hasGem
     }));
 
     expect(next).toEqual(snapshot);
@@ -120,6 +121,71 @@ describe("round and multiplier rules", () => {
     expect(game.roundWordTileId).toBe(beforeId);
     const vowels = countVowels(game.tiles.map((t) => t.letter));
     expect(vowels).toBeGreaterThan(0); // sanity check board still valid
+  });
+
+  it("reconnecting a player should not move letter multiplier tiles", () => {
+    const room = makeRoom();
+    const game = room.game!;
+    advanceRound(room); // enable multipliers and assign letter multiplier
+    const beforeMultiplierIds = game.tiles
+      .filter((t) => t.multiplier !== "none")
+      .map((t) => t.id)
+      .sort();
+    expect(beforeMultiplierIds.length).toBeGreaterThan(0);
+
+    // Simulate a reconnect snapshot and ensure multiplier ids are preserved.
+    const snapshot = toPublicGameState(game)!;
+    const afterMultiplierIds = snapshot.tiles
+      .filter((t) => t.multiplier !== "none")
+      .map((t) => t.id)
+      .sort();
+
+    expect(afterMultiplierIds).toEqual(beforeMultiplierIds);
+  });
+
+  it("using swap should not move letter multiplier tiles (currently failing)", () => {
+    const room = makeRoom();
+    const game = room.game!;
+    advanceRound(room); // enable multipliers
+    const player = room.players[0];
+    player.gems = 5;
+
+    const beforeMultiplierIds = game.tiles
+      .filter((t) => t.multiplier !== "none")
+      .map((t) => t.id)
+      .sort();
+    expect(beforeMultiplierIds.length).toBeGreaterThan(0);
+
+    // enter swap mode then apply swap on a non-multiplier tile
+    requestSwapMode(room, player.id);
+    const target = game.tiles.find((t) => t.multiplier === "none") ?? game.tiles[0];
+    applySwap(room, player.id, target.id, "Z");
+
+    const afterMultiplierIds = game.tiles
+      .filter((t) => t.multiplier !== "none")
+      .map((t) => t.id)
+      .sort();
+
+    expect(afterMultiplierIds).toEqual(beforeMultiplierIds);
+  });
+
+  it("swapping a tile keeps all multipliers unchanged (letter + word)", () => {
+    const room = makeRoom();
+    const game = room.game!;
+    advanceRound(room); // enable/assign multipliers
+    const player = room.players[0];
+    player.gems = 5;
+
+    const beforeMultipliers = new Map(game.tiles.map((t) => [t.id, t.multiplier]));
+    const beforeWordId = game.roundWordTileId;
+
+    requestSwapMode(room, player.id);
+    const target = game.tiles.find((t) => t.multiplier === "none") ?? game.tiles[0];
+    applySwap(room, player.id, target.id, "Z");
+
+    const afterMultipliers = new Map(game.tiles.map((t) => [t.id, t.multiplier]));
+    expect(afterMultipliers).toEqual(beforeMultipliers);
+    expect(game.roundWordTileId).toBe(beforeWordId);
   });
 });
 
