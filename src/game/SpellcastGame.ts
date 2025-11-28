@@ -981,7 +981,7 @@ export class SpellcastGame {
     const topPx = 20;
 
     this.wordBox.style.width = `${boardWidthPx}px`;
-    this.wordBox.style.left = `${boardLeftPx}px`;
+    this.wordBox.style.left = `${boardLeftPx + 10}px`;
     this.wordBox.style.top = `${topPx}px`;
     if (this.controlsWrap) {
       this.controlsWrap.style.width = `200px`;

@@ -810,8 +810,8 @@ export class WordBoard extends Group {
 
   private buildTiles() {
     this.resetLetterBag();
-    const offsetX = (this.cols - 1) * (this.tileSize / 2);
-    const offsetY = (this.rows - 1) * (this.tileSize / 2);
+    const offsetX = (this.cols - 1) * (this.tileSize / 2) - 0.25;
+    const offsetY = (this.rows - 1) * (this.tileSize / 2) - 0.1;
 
     const total = this.cols * this.rows;
     const tilesData = [];
@@ -1039,14 +1039,18 @@ export class WordBoard extends Group {
 
     if (hasGem) {
       ctx.save();
-      ctx.translate(size * 0.78, size * 0.78);
-      ctx.fillStyle = "#f26cff";
-      ctx.strokeStyle = "rgba(0,0,0,0.4)";
-      ctx.lineWidth = 4;
+      ctx.translate(size * 0.175, size * 0.825);
+      // Gem icon background
+      ctx.fillStyle = "#e61bf8ff";
       ctx.beginPath();
-      ctx.rect(-180, 0, 36, 36);
+      ctx.arc(0, 0, 25, 0, Math.PI * 2);
       ctx.fill();
-      ctx.stroke();
+      // FontAwesome gem glyph (fa-gem, unicode f3a5)
+      ctx.fillStyle = "#ffffffff";
+      ctx.font = "bold 36px 'Font Awesome 6 Free', 'Font Awesome 5 Free', 'FontAwesome', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("\uf3a5", 0, 2);
       ctx.restore();
     }
 
